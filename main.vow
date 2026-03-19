@@ -1,6 +1,9 @@
 module Main
 
 use parse.strutil
+use parse.export
+use kernel.env
+use diag.pretty
 
 fn main() -> i32 [io, read] {
     let args: Vec<String> = args();
@@ -11,8 +14,18 @@ fn main() -> i32 [io, read] {
     };
 
     let lines: Vec<String> = split_lines(input);
-    print_str(String::from("Lines: "));
-    print_u64(lines.len());
+    let env: Environment = env_new();
+
+    let mut i: u64 = 0;
+    while i < lines.len() {
+        if lines[i].len() > 0 {
+            parse_line(env, lines[i]);
+        }
+        i = i + 1;
+    }
+
+    let summary: String = pretty_env_summary(env);
+    print_str(summary);
     print_str(String::from("\n"));
-    0i32
+    return 0i32;
 }

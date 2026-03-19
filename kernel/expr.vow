@@ -1,0 +1,44 @@
+module Expr
+
+pub enum BinderInfo {
+    Default,
+    Implicit,
+    StrictImplicit,
+    InstImplicit,
+}
+
+pub enum LitData {
+    Nat { val: String },
+    Str { val: String },
+}
+
+pub enum ExprData {
+    BVar { idx: u64 },
+    Sort { level: u64 },
+    Const { name: u64, levels: Vec<u64> },
+    App { func: u64, arg: u64 },
+    Lambda { name: u64, ty: u64, body: u64, bi: BinderInfo },
+    Forall { name: u64, ty: u64, body: u64, bi: BinderInfo },
+    Let { name: u64, ty: u64, val: u64, body: u64, nondep: bool },
+    Lit { data: LitData },
+    Proj { sname: u64, idx: u64, expr: u64 },
+    MData { expr: u64 },
+}
+
+pub struct ExprArena {
+    entries: Vec<ExprData>,
+}
+
+pub fn expr_arena_new() -> ExprArena {
+    return ExprArena { entries: Vec::new() };
+}
+
+pub fn expr_arena_add(arena: ExprArena, data: ExprData) -> u64 {
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(data);
+    return idx;
+}
+
+pub fn expr_arena_get(arena: ExprArena, idx: u64) -> ExprData {
+    return arena.entries[idx];
+}

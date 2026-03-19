@@ -30,5 +30,6 @@ Create a YAML file in `checkers/` following the `schemas/checker.json` spec. It 
 ## Toolchain
 
 - The `vowc` compiler is located at `/home/pmatos/dev/vow-lang/vowc`.
-- Always run `vowc` under `ulimit` to avoid memory explosion (e.g., `ulimit -v <limit> && vowc ...`).
+- Always run `vowc` under `ulimit` to avoid memory explosion (e.g., `ulimit -v 4194304 && vowc ...`).
+- Always run compiled Vow binaries (e.g., `lean_checker`) under `ulimit` too — Vow-compiled code is also prone to memory issues (e.g., `ulimit -v 4194304 && ./lean_checker ...`).
 - Bugs or issues found in Vow during development should be filed directly to the Vow issue tracker: https://github.com/pmatos/vow-lang/issues

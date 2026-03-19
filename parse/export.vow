@@ -1,0 +1,520 @@
+module Export
+
+use parse.strutil
+use parse.json
+use kernel.name
+use kernel.level
+use kernel.expr
+use kernel.env
+
+pub struct FindResult {
+    found: u64,
+    pos: u64,
+}
+
+pub fn find_key(s: String, obj_pos: u64, key: String) -> FindResult {
+    let mut result: FindResult = FindResult { found: 0, pos: 0 };
+    match json_find_key(s, obj_pos, key) {
+        Option::Some(p) => { result.found = 1; result.pos = p; },
+        Option::None => {},
+    }
+    return result;
+}
+
+fn unwrap_pos(opt: Option<u64>) -> u64 {
+    let mut result: u64 = 0;
+    match opt {
+        Option::Some(v) => { result = v; },
+        Option::None => {},
+    }
+    return result;
+}
+
+fn parse_binder_info(s: String, pos: u64) -> BinderInfo {
+    let r: ParseStrResult = json_parse_string(s, pos);
+    if r.val.eq(String::from("implicit")) {
+        return BinderInfo::Implicit;
+    }
+    if r.val.eq(String::from("strictImplicit")) {
+        return BinderInfo::StrictImplicit;
+    }
+    if r.val.eq(String::from("instImplicit")) {
+        return BinderInfo::InstImplicit;
+    }
+    return BinderInfo::Default;
+}
+
+fn parse_def_hints(s: String, pos: u64) -> DefHint {
+    let p: u64 = skip_ws(s, pos);
+    if p < s.len() && s.byte_at(p) == 34 {
+        let r: ParseStrResult = json_parse_string(s, p);
+        if r.val.eq(String::from("abbrev")) {
+            return DefHint::Abbrev;
+        }
+        return DefHint::Opaque;
+    }
+    if p < s.len() && s.byte_at(p) == 123 {
+        match json_find_key(s, p, String::from("regular")) {
+            Option::Some(reg_pos) => {
+                let height: u64 = json_parse_uint(s, reg_pos).val;
+                return DefHint::Regular { height: height };
+            },
+            Option::None => {},
+        }
+    }
+    return DefHint::Opaque;
+}
+
+fn parse_safety(s: String, pos: u64) -> Safety {
+    let r: ParseStrResult = json_parse_string(s, pos);
+    if r.val.eq(String::from("unsafe")) {
+        return Safety::Unsafe;
+    }
+    if r.val.eq(String::from("partial")) {
+        return Safety::Partial;
+    }
+    return Safety::Safe;
+}
+
+fn parse_quot_kind(s: String, pos: u64) -> QuotKind {
+    let r: ParseStrResult = json_parse_string(s, pos);
+    if r.val.eq(String::from("ctor")) {
+        return QuotKind::Ctor;
+    }
+    if r.val.eq(String::from("lift")) {
+        return QuotKind::Lift;
+    }
+    if r.val.eq(String::from("ind")) {
+        return QuotKind::Ind;
+    }
+    return QuotKind::Type;
+}
+
+fn parse_name_line(env: Environment, line: String, in_pos: u64) -> bool {
+    let id: u64 = json_parse_uint(line, in_pos).val;
+    if id < env.names.entries.len() {
+        return true;
+    }
+
+    let str_r: FindResult = find_key(line, 0, String::from("str"));
+    if str_r.found > 0 {
+        let pre_r: FindResult = find_key(line, str_r.pos, String::from("pre"));
+        let s_r: FindResult = find_key(line, str_r.pos, String::from("str"));
+        let parent: u64 = json_parse_uint(line, pre_r.pos).val;
+        let field: String = json_parse_string(line, s_r.pos).val;
+        name_arena_add(env.names, make_name_str(parent, field));
+        return true;
+    }
+
+    let num_r: FindResult = find_key(line, 0, String::from("num"));
+    if num_r.found > 0 {
+        let pre_r: FindResult = find_key(line, num_r.pos, String::from("pre"));
+        let i_r: FindResult = find_key(line, num_r.pos, String::from("i"));
+        let parent: u64 = json_parse_uint(line, pre_r.pos).val;
+        let field: u64 = json_parse_uint(line, i_r.pos).val;
+        name_arena_add(env.names, make_name_num(parent, field));
+        return true;
+    }
+
+    name_arena_add(env.names, make_name_anonymous());
+    return true;
+}
+
+fn parse_level_line(env: Environment, line: String, il_pos: u64) -> bool {
+    let id: u64 = json_parse_uint(line, il_pos).val;
+    if id < env.levels.entries.len() {
+        return true;
+    }
+
+    match json_find_key(line, 0, String::from("succ")) {
+        Option::Some(succ_pos) => {
+            let pred: u64 = json_parse_uint(line, succ_pos).val;
+            level_arena_add(env.levels, LevelData::Succ { pred: pred });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("max")) {
+        Option::Some(max_pos) => {
+            let arr: ParseUintArrayResult = json_parse_uint_array(line, max_pos);
+            level_arena_add(env.levels, LevelData::Max { lhs: arr.vals[0], rhs: arr.vals[1] });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("imax")) {
+        Option::Some(imax_pos) => {
+            let arr: ParseUintArrayResult = json_parse_uint_array(line, imax_pos);
+            level_arena_add(env.levels, LevelData::IMax { lhs: arr.vals[0], rhs: arr.vals[1] });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("param")) {
+        Option::Some(param_pos) => {
+            let name: u64 = json_parse_uint(line, param_pos).val;
+            level_arena_add(env.levels, LevelData::Param { name: name });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    level_arena_add(env.levels, LevelData::Zero);
+    return true;
+}
+
+fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
+    match json_find_key(line, 0, String::from("bvar")) {
+        Option::Some(bvar_pos) => {
+            let idx: u64 = json_parse_uint(line, bvar_pos).val;
+            expr_arena_add(env.exprs, ExprData::BVar { idx: idx });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("sort")) {
+        Option::Some(sort_pos) => {
+            let level: u64 = json_parse_uint(line, sort_pos).val;
+            expr_arena_add(env.exprs, ExprData::Sort { level: level });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("const")) {
+        Option::Some(const_pos) => {
+            let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, const_pos, String::from("name")))).val;
+            let levels: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, const_pos, String::from("us")))).vals;
+            expr_arena_add(env.exprs, ExprData::Const { name: name, levels: levels });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("app")) {
+        Option::Some(app_pos) => {
+            let func: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, app_pos, String::from("fn")))).val;
+            let arg: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, app_pos, String::from("arg")))).val;
+            expr_arena_add(env.exprs, ExprData::App { func: func, arg: arg });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("lam")) {
+        Option::Some(lam_pos) => {
+            let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("name")))).val;
+            let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("type")))).val;
+            let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("body")))).val;
+            let bi: BinderInfo = parse_binder_info(line, unwrap_pos(json_find_key(line, lam_pos, String::from("bi"))));
+            expr_arena_add(env.exprs, ExprData::Lambda { name: name, ty: ty, body: body, bi: bi });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("forallE")) {
+        Option::Some(fa_pos) => {
+            let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("name")))).val;
+            let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("type")))).val;
+            let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("body")))).val;
+            let bi: BinderInfo = parse_binder_info(line, unwrap_pos(json_find_key(line, fa_pos, String::from("bi"))));
+            expr_arena_add(env.exprs, ExprData::Forall { name: name, ty: ty, body: body, bi: bi });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("letE")) {
+        Option::Some(let_pos) => {
+            let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("name")))).val;
+            let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("type")))).val;
+            let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("value")))).val;
+            let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("body")))).val;
+            let nondep: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, let_pos, String::from("nondep"))));
+            expr_arena_add(env.exprs, ExprData::Let { name: name, ty: ty, val: val, body: body, nondep: nondep });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("proj")) {
+        Option::Some(proj_pos) => {
+            let sname: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("typeName")))).val;
+            let idx: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("idx")))).val;
+            let expr: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("struct")))).val;
+            expr_arena_add(env.exprs, ExprData::Proj { sname: sname, idx: idx, expr: expr });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("natVal")) {
+        Option::Some(nat_pos) => {
+            let val: String = json_parse_string(line, nat_pos).val;
+            expr_arena_add(env.exprs, ExprData::Lit { data: LitData::Nat { val: val } });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("strVal")) {
+        Option::Some(str_pos) => {
+            let val: String = json_parse_string(line, str_pos).val;
+            expr_arena_add(env.exprs, ExprData::Lit { data: LitData::Str { val: val } });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("mdata")) {
+        Option::Some(mdata_pos) => {
+            let expr: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, mdata_pos, String::from("expr")))).val;
+            expr_arena_add(env.exprs, ExprData::MData { expr: expr });
+            return true;
+        },
+        Option::None => {},
+    }
+
+    return false;
+}
+
+fn parse_axiom_decl(env: Environment, line: String) -> bool {
+    let ax_pos: u64 = unwrap_pos(json_find_key(line, 0, String::from("axiom")));
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, ax_pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, ax_pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, ax_pos, String::from("type")))).val;
+    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, ax_pos, String::from("isUnsafe"))));
+
+    let name_str: String = name_to_string(env.names, name);
+    let decl: AxiomDecl = AxiomDecl { name: name, level_params: level_params, ty: ty, is_unsafe: is_unsafe };
+    env_add_decl(env, name_str, DeclEntry::Axiom { decl: decl });
+    return true;
+}
+
+fn parse_def_decl(env: Environment, line: String) -> bool {
+    let def_pos: u64 = unwrap_pos(json_find_key(line, 0, String::from("def")));
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, def_pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, def_pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, def_pos, String::from("type")))).val;
+    let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, def_pos, String::from("value")))).val;
+    let hints: DefHint = parse_def_hints(line, unwrap_pos(json_find_key(line, def_pos, String::from("hints"))));
+    let safety: Safety = parse_safety(line, unwrap_pos(json_find_key(line, def_pos, String::from("safety"))));
+    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, def_pos, String::from("all")))).vals;
+
+    let name_str: String = name_to_string(env.names, name);
+    let decl: DefinitionDecl = DefinitionDecl { name: name, level_params: level_params, ty: ty, val: val, hints: hints, safety: safety, all: all };
+    env_add_decl(env, name_str, DeclEntry::Definition { decl: decl });
+    return true;
+}
+
+fn parse_thm_decl(env: Environment, line: String) -> bool {
+    let thm_pos: u64 = unwrap_pos(json_find_key(line, 0, String::from("thm")));
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, thm_pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, thm_pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, thm_pos, String::from("type")))).val;
+    let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, thm_pos, String::from("value")))).val;
+    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, thm_pos, String::from("all")))).vals;
+
+    let name_str: String = name_to_string(env.names, name);
+    let decl: TheoremDecl = TheoremDecl { name: name, level_params: level_params, ty: ty, val: val, all: all };
+    env_add_decl(env, name_str, DeclEntry::Theorem { decl: decl });
+    return true;
+}
+
+fn parse_opaque_decl(env: Environment, line: String) -> bool {
+    let op_pos: u64 = unwrap_pos(json_find_key(line, 0, String::from("opaque")));
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, op_pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, op_pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, op_pos, String::from("type")))).val;
+    let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, op_pos, String::from("value")))).val;
+    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, op_pos, String::from("isUnsafe"))));
+    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, op_pos, String::from("all")))).vals;
+
+    let name_str: String = name_to_string(env.names, name);
+    let decl: OpaqueDecl = OpaqueDecl { name: name, level_params: level_params, ty: ty, val: val, is_unsafe: is_unsafe, all: all };
+    env_add_decl(env, name_str, DeclEntry::Opaque { decl: decl });
+    return true;
+}
+
+fn parse_quot_decl(env: Environment, line: String) -> bool {
+    let qt_pos: u64 = unwrap_pos(json_find_key(line, 0, String::from("quot")));
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, qt_pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, qt_pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, qt_pos, String::from("type")))).val;
+    let kind: QuotKind = parse_quot_kind(line, unwrap_pos(json_find_key(line, qt_pos, String::from("kind"))));
+
+    let name_str: String = name_to_string(env.names, name);
+    let decl: QuotDecl = QuotDecl { name: name, level_params: level_params, ty: ty, kind: kind };
+    env_add_decl(env, name_str, DeclEntry::Quot { decl: decl });
+    return true;
+}
+
+fn parse_one_inductive_type(line: String, pos: u64) -> InductiveType {
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("type")))).val;
+    let num_params: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numParams")))).val;
+    let num_indices: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numIndices")))).val;
+    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, String::from("all")))).vals;
+    let ctors: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, String::from("ctors")))).vals;
+    let num_nested: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numNested")))).val;
+    let is_rec: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, String::from("isRec"))));
+    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, String::from("isUnsafe"))));
+    let is_reflexive: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, String::from("isReflexive"))));
+
+    return InductiveType {
+        name: name, level_params: level_params, ty: ty,
+        num_params: num_params, num_indices: num_indices,
+        all: all, ctors: ctors, num_nested: num_nested,
+        is_rec: is_rec, is_unsafe: is_unsafe, is_reflexive: is_reflexive,
+    };
+}
+
+fn parse_one_constructor(line: String, pos: u64) -> ConstructorDecl {
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("type")))).val;
+    let induct: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("induct")))).val;
+    let cidx: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("cidx")))).val;
+    let num_params: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numParams")))).val;
+    let num_fields: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numFields")))).val;
+    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, String::from("isUnsafe"))));
+
+    return ConstructorDecl {
+        name: name, level_params: level_params, ty: ty,
+        induct: induct, cidx: cidx,
+        num_params: num_params, num_fields: num_fields,
+        is_unsafe: is_unsafe,
+    };
+}
+
+fn parse_one_recursor_rule(line: String, pos: u64) -> RecursorRule {
+    let ctor: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("ctor")))).val;
+    let nfields: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("nfields")))).val;
+    let rhs: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("rhs")))).val;
+    return RecursorRule { ctor: ctor, nfields: nfields, rhs: rhs };
+}
+
+fn parse_one_recursor(line: String, pos: u64) -> RecursorDecl {
+    let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("name")))).val;
+    let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, String::from("levelParams")))).vals;
+    let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("type")))).val;
+    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, String::from("all")))).vals;
+    let num_params: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numParams")))).val;
+    let num_indices: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numIndices")))).val;
+    let num_motives: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numMotives")))).val;
+    let num_minors: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, String::from("numMinors")))).val;
+    let k: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, String::from("k"))));
+    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, String::from("isUnsafe"))));
+
+    let rules_pos: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, pos, String::from("rules"))));
+    let mut rules: Vec<RecursorRule> = Vec::new();
+    let mut ri: u64 = 0;
+    while ri < rules_pos.len() {
+        rules.push(parse_one_recursor_rule(line, rules_pos[ri]));
+        ri = ri + 1;
+    }
+
+    return RecursorDecl {
+        name: name, level_params: level_params, ty: ty, all: all,
+        num_params: num_params, num_indices: num_indices,
+        num_motives: num_motives, num_minors: num_minors,
+        rules: rules, k: k, is_unsafe: is_unsafe,
+    };
+}
+
+fn parse_inductive_decl(env: Environment, line: String) -> bool {
+    let ind_pos: u64 = unwrap_pos(json_find_key(line, 0, String::from("inductive")));
+
+    let type_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, String::from("types"))));
+    let mut types: Vec<InductiveType> = Vec::new();
+    let mut ti: u64 = 0;
+    while ti < type_positions.len() {
+        types.push(parse_one_inductive_type(line, type_positions[ti]));
+        ti = ti + 1;
+    }
+
+    let ctor_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, String::from("ctors"))));
+    let mut ctors: Vec<ConstructorDecl> = Vec::new();
+    let mut ci: u64 = 0;
+    while ci < ctor_positions.len() {
+        ctors.push(parse_one_constructor(line, ctor_positions[ci]));
+        ci = ci + 1;
+    }
+
+    let rec_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, String::from("recs"))));
+    let mut recs: Vec<RecursorDecl> = Vec::new();
+    let mut ri: u64 = 0;
+    while ri < rec_positions.len() {
+        recs.push(parse_one_recursor(line, rec_positions[ri]));
+        ri = ri + 1;
+    }
+
+    let decl: InductiveDecl = InductiveDecl { types: types, ctors: ctors, recs: recs };
+
+    let mut name_str: String = String::from("[inductive]");
+    if types.len() > 0 {
+        name_str = name_to_string(env.names, types[0].name);
+    }
+    env_add_decl(env, name_str, DeclEntry::Inductive { decl: decl });
+    return true;
+}
+
+pub fn parse_line(env: Environment, line: String) -> bool {
+    if line.len() == 0 {
+        return true;
+    }
+
+    match json_find_key(line, 0, String::from("in")) {
+        Option::Some(in_pos) => {
+            return parse_name_line(env, line, in_pos);
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("il")) {
+        Option::Some(il_pos) => {
+            return parse_level_line(env, line, il_pos);
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("ie")) {
+        Option::Some(ie_pos) => {
+            return parse_expr_line(env, line, ie_pos);
+        },
+        Option::None => {},
+    }
+
+    match json_find_key(line, 0, String::from("axiom")) {
+        Option::Some(p) => { return parse_axiom_decl(env, line); },
+        Option::None => {},
+    }
+    match json_find_key(line, 0, String::from("def")) {
+        Option::Some(p) => { return parse_def_decl(env, line); },
+        Option::None => {},
+    }
+    match json_find_key(line, 0, String::from("thm")) {
+        Option::Some(p) => { return parse_thm_decl(env, line); },
+        Option::None => {},
+    }
+    match json_find_key(line, 0, String::from("opaque")) {
+        Option::Some(p) => { return parse_opaque_decl(env, line); },
+        Option::None => {},
+    }
+    match json_find_key(line, 0, String::from("quot")) {
+        Option::Some(p) => { return parse_quot_decl(env, line); },
+        Option::None => {},
+    }
+    match json_find_key(line, 0, String::from("inductive")) {
+        Option::Some(p) => { return parse_inductive_decl(env, line); },
+        Option::None => {},
+    }
+
+    return true;
+}

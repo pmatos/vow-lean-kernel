@@ -1,0 +1,46 @@
+module Pretty
+
+use parse.strutil
+use kernel.name
+use kernel.level
+use kernel.expr
+use kernel.env
+
+fn append_str(dst: String, src: String) {
+    let mut i: u64 = 0;
+    while i < src.len() {
+        dst.push_byte(src.byte_at(i));
+        i = i + 1;
+    }
+}
+
+pub fn pretty_name(arena: NameArena, idx: u64) -> String {
+    return name_to_string(arena, idx);
+}
+
+pub fn pretty_level(idx: u64) -> String {
+    let mut result: String = String::from("Level[");
+    append_str(result, u64_to_string(idx));
+    result.push_byte(93);
+    return result;
+}
+
+pub fn pretty_expr(idx: u64) -> String {
+    let mut result: String = String::from("Expr[");
+    append_str(result, u64_to_string(idx));
+    result.push_byte(93);
+    return result;
+}
+
+pub fn pretty_env_summary(env: Environment) -> String {
+    let mut result: String = String::from("Environment: ");
+    append_str(result, u64_to_string(env.names.entries.len()));
+    append_str(result, String::from(" names, "));
+    append_str(result, u64_to_string(env.levels.entries.len()));
+    append_str(result, String::from(" levels, "));
+    append_str(result, u64_to_string(env.exprs.entries.len()));
+    append_str(result, String::from(" exprs, "));
+    append_str(result, u64_to_string(env.decls.len()));
+    append_str(result, String::from(" decls"));
+    return result;
+}

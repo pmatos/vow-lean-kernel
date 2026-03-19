@@ -1,0 +1,78 @@
+module Name
+
+use parse.strutil
+
+pub struct NameData {
+    tag: u64,
+    parent: u64,
+    field_str: String,
+    field_num: u64,
+}
+
+pub fn make_name_anonymous() -> NameData {
+    return NameData { tag: 0, parent: 0, field_str: String::from(""), field_num: 0 };
+}
+
+pub fn make_name_str(parent: u64, field: String) -> NameData {
+    return NameData { tag: 1, parent: parent, field_str: field, field_num: 0 };
+}
+
+pub fn make_name_num(parent: u64, field: u64) -> NameData {
+    return NameData { tag: 2, parent: parent, field_str: String::from(""), field_num: field };
+}
+
+pub struct NameArena {
+    entries: Vec<NameData>,
+}
+
+pub fn name_arena_new() -> NameArena {
+    let mut entries: Vec<NameData> = Vec::new();
+    entries.push(make_name_anonymous());
+    return NameArena { entries: entries };
+}
+
+pub fn name_arena_add(arena: NameArena, data: NameData) -> u64 {
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(data);
+    return idx;
+}
+
+pub fn name_arena_get(arena: NameArena, idx: u64) -> NameData {
+    return arena.entries[idx];
+}
+
+pub fn name_to_string(arena: NameArena, idx: u64) -> String {
+    let mut components: Vec<String> = Vec::new();
+    let mut cur: u64 = idx;
+    let stop: u64 = arena.entries.len();
+    while cur < stop {
+        let nd: NameData = arena.entries[cur];
+        if nd.tag == 0 {
+            cur = stop;
+        } else if nd.tag == 1 {
+            components.push(nd.field_str);
+            cur = nd.parent;
+        } else {
+            components.push(u64_to_string(nd.field_num));
+            cur = nd.parent;
+        }
+    }
+    if components.len() == 0 {
+        return String::from("[anonymous]");
+    }
+    let mut result: String = String::from("");
+    let mut i: u64 = components.len();
+    while i > 0 {
+        i = i - 1;
+        if result.len() > 0 {
+            result.push_byte(46);
+        }
+        let comp: String = components[i];
+        let mut j: u64 = 0;
+        while j < comp.len() {
+            result.push_byte(comp.byte_at(j));
+            j = j + 1;
+        }
+    }
+    return result;
+}

@@ -22,16 +22,17 @@ pub fn json_skip_value(s: String, pos: u64) -> u64 {
         let mut depth: u64 = 1;
         while i < s.len() && depth > 0 {
             let c: u64 = s.byte_at(i);
-            if c == 123 {
-                depth = depth + 1;
-            } else if c == 125 {
-                depth = depth - 1;
-            } else if c == 34 {
+            if c == 34 {
                 let r: ParseStrResult = parse_quoted_string(s, i);
                 i = r.end_pos;
-                continue;
+            } else {
+                if c == 123 {
+                    depth = depth + 1;
+                } else if c == 125 {
+                    depth = depth - 1;
+                }
+                i = i + 1;
             }
-            i = i + 1;
         }
         return i;
     }
@@ -40,16 +41,17 @@ pub fn json_skip_value(s: String, pos: u64) -> u64 {
         let mut depth: u64 = 1;
         while i < s.len() && depth > 0 {
             let c: u64 = s.byte_at(i);
-            if c == 91 {
-                depth = depth + 1;
-            } else if c == 93 {
-                depth = depth - 1;
-            } else if c == 34 {
+            if c == 34 {
                 let r: ParseStrResult = parse_quoted_string(s, i);
                 i = r.end_pos;
-                continue;
+            } else {
+                if c == 91 {
+                    depth = depth + 1;
+                } else if c == 93 {
+                    depth = depth - 1;
+                }
+                i = i + 1;
             }
-            i = i + 1;
         }
         return i;
     }
@@ -159,4 +161,32 @@ pub fn json_parse_uint_array(s: String, pos: u64) -> ParseUintArrayResult {
         }
     }
     return ParseUintArrayResult { vals: vals, end_pos: p };
+}
+
+pub fn json_parse_object_array(s: String, pos: u64) -> Vec<u64> {
+    let mut positions: Vec<u64> = Vec::new();
+    let mut p: u64 = skip_ws(s, pos);
+    if p >= s.len() || s.byte_at(p) != 91 {
+        return positions;
+    }
+    p = p + 1;
+    p = skip_ws(s, p);
+    if p < s.len() && s.byte_at(p) == 93 {
+        return positions;
+    }
+    while p < s.len() {
+        p = skip_ws(s, p);
+        if p < s.len() && s.byte_at(p) == 93 {
+            return positions;
+        }
+        positions.push(p);
+        p = json_skip_value(s, p);
+        p = skip_ws(s, p);
+        if p < s.len() && s.byte_at(p) == 44 {
+            p = p + 1;
+        } else {
+            return positions;
+        }
+    }
+    return positions;
 }

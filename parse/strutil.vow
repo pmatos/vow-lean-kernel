@@ -117,6 +117,25 @@ pub fn match_keyword(s: String, pos: u64, kw: String) -> u64 {
     return pos + kw.len();
 }
 
+pub fn u64_to_string(n: u64) -> String {
+    if n == 0 {
+        return String::from("0");
+    }
+    let mut digits: Vec<u64> = Vec::new();
+    let mut val: u64 = n;
+    while val > 0 {
+        digits.push(val % 10);
+        val = val / 10;
+    }
+    let mut result: String = String::from("");
+    let mut i: u64 = digits.len();
+    while i > 0 {
+        i = i - 1;
+        result.push_byte(48 + digits[i]);
+    }
+    return result;
+}
+
 pub fn split_lines(s: String) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut start: u64 = 0;

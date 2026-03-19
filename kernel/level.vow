@@ -1,0 +1,29 @@
+module Level
+
+pub enum LevelData {
+    Zero,
+    Succ { pred: u64 },
+    Max { lhs: u64, rhs: u64 },
+    IMax { lhs: u64, rhs: u64 },
+    Param { name: u64 },
+}
+
+pub struct LevelArena {
+    entries: Vec<LevelData>,
+}
+
+pub fn level_arena_new() -> LevelArena {
+    let mut entries: Vec<LevelData> = Vec::new();
+    entries.push(LevelData::Zero);
+    return LevelArena { entries: entries };
+}
+
+pub fn level_arena_add(arena: LevelArena, data: LevelData) -> u64 {
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(data);
+    return idx;
+}
+
+pub fn level_arena_get(arena: LevelArena, idx: u64) -> LevelData {
+    return arena.entries[idx];
+}
