@@ -31,13 +31,17 @@ pub fn name_arena_new() -> NameArena {
     return NameArena { entries: entries };
 }
 
-pub fn name_arena_add(arena: NameArena, data: NameData) -> u64 {
+pub fn name_arena_add(arena: NameArena, data: NameData) -> u64 vow {
+    requires: arena.entries.len() < 128
+} {
     let idx: u64 = arena.entries.len();
     arena.entries.push(data);
     return idx;
 }
 
-pub fn name_arena_get(arena: NameArena, idx: u64) -> NameData {
+pub fn name_arena_get(arena: NameArena, idx: u64) -> NameData vow {
+    requires: idx < arena.entries.len()
+} {
     return arena.entries[idx];
 }
 

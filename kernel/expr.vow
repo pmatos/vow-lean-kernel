@@ -33,12 +33,16 @@ pub fn expr_arena_new() -> ExprArena {
     return ExprArena { entries: Vec::new() };
 }
 
-pub fn expr_arena_add(arena: ExprArena, data: ExprData) -> u64 {
+pub fn expr_arena_add(arena: ExprArena, data: ExprData) -> u64 vow {
+    requires: arena.entries.len() < 128
+} {
     let idx: u64 = arena.entries.len();
     arena.entries.push(data);
     return idx;
 }
 
-pub fn expr_arena_get(arena: ExprArena, idx: u64) -> ExprData {
+pub fn expr_arena_get(arena: ExprArena, idx: u64) -> ExprData vow {
+    requires: idx < arena.entries.len()
+} {
     return arena.entries[idx];
 }

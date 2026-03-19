@@ -18,12 +18,16 @@ pub fn level_arena_new() -> LevelArena {
     return LevelArena { entries: entries };
 }
 
-pub fn level_arena_add(arena: LevelArena, data: LevelData) -> u64 {
+pub fn level_arena_add(arena: LevelArena, data: LevelData) -> u64 vow {
+    requires: arena.entries.len() < 128
+} {
     let idx: u64 = arena.entries.len();
     arena.entries.push(data);
     return idx;
 }
 
-pub fn level_arena_get(arena: LevelArena, idx: u64) -> LevelData {
+pub fn level_arena_get(arena: LevelArena, idx: u64) -> LevelData vow {
+    requires: idx < arena.entries.len()
+} {
     return arena.entries[idx];
 }

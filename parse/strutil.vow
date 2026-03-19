@@ -15,9 +15,16 @@ pub struct ParseStrResult {
     end_pos: u64,
 }
 
-pub fn skip_ws(s: String, pos: u64) -> u64 {
+pub fn skip_ws(s: String, pos: u64) -> u64 vow {
+    requires: pos <= s.len(),
+    ensures: result >= pos,
+    ensures: result <= s.len()
+} {
     let mut i: u64 = pos;
-    while i < s.len() {
+    while i < s.len() vow {
+        invariant: i >= pos,
+        invariant: i <= s.len()
+    } {
         let b: u64 = s.byte_at(i);
         if b == 32 || b == 9 || b == 10 || b == 13 {
             i = i + 1;
@@ -35,10 +42,15 @@ pub fn expect_byte(s: String, pos: u64, b: u64) -> u64 {
     return pos;
 }
 
-pub fn parse_u64_lit(s: String, pos: u64) -> ParseU64Result {
+pub fn parse_u64_lit(s: String, pos: u64) -> ParseU64Result vow {
+    requires: pos <= s.len()
+} {
     let mut i: u64 = pos;
     let mut val: u64 = 0;
-    while i < s.len() {
+    while i < s.len() vow {
+        invariant: i >= pos,
+        invariant: i <= s.len()
+    } {
         let b: u64 = s.byte_at(i);
         if b >= 48 && b <= 57 {
             val = val * 10 + (b - 48);
@@ -103,9 +115,15 @@ pub fn parse_quoted_string(s: String, pos: u64) -> ParseStrResult {
     return ParseStrResult { val: result, end_pos: i };
 }
 
-pub fn match_keyword(s: String, pos: u64, kw: String) -> u64 {
+pub fn match_keyword(s: String, pos: u64, kw: String) -> u64 vow {
+    requires: pos <= s.len(),
+    ensures: result >= pos,
+    ensures: result <= s.len()
+} {
     let mut i: u64 = 0;
-    while i < kw.len() {
+    while i < kw.len() vow {
+        invariant: i <= kw.len()
+    } {
         if pos + i >= s.len() {
             return pos;
         }

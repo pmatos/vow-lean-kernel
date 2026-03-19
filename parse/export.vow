@@ -12,7 +12,9 @@ pub struct FindResult {
     pos: u64,
 }
 
-pub fn find_key(s: String, obj_pos: u64, key: String) -> FindResult {
+pub fn find_key(s: String, obj_pos: u64, key: String) -> FindResult vow {
+    requires: obj_pos <= s.len()
+} {
     let mut result: FindResult = FindResult { found: 0, pos: 0 };
     match json_find_key(s, obj_pos, key) {
         Option::Some(p) => { result.found = 1; result.pos = p; },
