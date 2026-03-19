@@ -1,0 +1,18 @@
+module Main
+
+use parse.strutil
+
+fn main() -> i32 [io, read] {
+    let args: Vec<String> = args();
+    let input: String = if args.len() > 1u64 {
+        fs_read(args[1u64])
+    } else {
+        stdin_read()
+    };
+
+    let lines: Vec<String> = split_lines(input);
+    print_str(String::from("Lines: "));
+    print_u64(lines.len());
+    print_str(String::from("\n"));
+    0i32
+}

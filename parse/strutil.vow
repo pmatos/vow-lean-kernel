@@ -1,0 +1,135 @@
+module StrUtil
+
+pub struct ParseU64Result {
+    val: u64,
+    end_pos: u64,
+}
+
+pub struct ParseI64Result {
+    val: i64,
+    end_pos: u64,
+}
+
+pub struct ParseStrResult {
+    val: String,
+    end_pos: u64,
+}
+
+pub fn skip_ws(s: String, pos: u64) -> u64 {
+    let mut i: u64 = pos;
+    while i < s.len() {
+        let b: u64 = s.byte_at(i);
+        if b == 32 || b == 9 || b == 10 || b == 13 {
+            i = i + 1;
+        } else {
+            return i;
+        }
+    }
+    return i;
+}
+
+pub fn expect_byte(s: String, pos: u64, b: u64) -> u64 {
+    if pos < s.len() && s.byte_at(pos) == b {
+        return pos + 1;
+    }
+    return pos;
+}
+
+pub fn parse_u64_lit(s: String, pos: u64) -> ParseU64Result {
+    let mut i: u64 = pos;
+    let mut val: u64 = 0;
+    while i < s.len() {
+        let b: u64 = s.byte_at(i);
+        if b >= 48 && b <= 57 {
+            val = val * 10 + (b - 48);
+            i = i + 1;
+        } else {
+            return ParseU64Result { val: val, end_pos: i };
+        }
+    }
+    return ParseU64Result { val: val, end_pos: i };
+}
+
+pub fn parse_i64_lit(s: String, pos: u64) -> ParseI64Result {
+    let mut neg: bool = false;
+    let mut i: u64 = pos;
+    if i < s.len() && s.byte_at(i) == 45 {
+        neg = true;
+        i = i + 1;
+    }
+    let r: ParseU64Result = parse_u64_lit(s, i);
+    let mut v: i64 = r.val as i64;
+    if neg {
+        v = 0 - v;
+    }
+    return ParseI64Result { val: v, end_pos: r.end_pos };
+}
+
+pub fn parse_quoted_string(s: String, pos: u64) -> ParseStrResult {
+    let mut i: u64 = pos;
+    if i >= s.len() || s.byte_at(i) != 34 {
+        return ParseStrResult { val: String::from(""), end_pos: pos };
+    }
+    i = i + 1;
+    let mut result: String = String::from("");
+    while i < s.len() {
+        let b: u64 = s.byte_at(i);
+        if b == 34 {
+            return ParseStrResult { val: result, end_pos: i + 1 };
+        }
+        if b == 92 {
+            i = i + 1;
+            if i < s.len() {
+                let esc: u64 = s.byte_at(i);
+                if esc == 110 {
+                    result.push_byte(10);
+                } else if esc == 116 {
+                    result.push_byte(9);
+                } else if esc == 114 {
+                    result.push_byte(13);
+                } else if esc == 34 {
+                    result.push_byte(34);
+                } else if esc == 92 {
+                    result.push_byte(92);
+                } else {
+                    result.push_byte(esc);
+                }
+            }
+        } else {
+            result.push_byte(b);
+        }
+        i = i + 1;
+    }
+    return ParseStrResult { val: result, end_pos: i };
+}
+
+pub fn match_keyword(s: String, pos: u64, kw: String) -> u64 {
+    let mut i: u64 = 0;
+    while i < kw.len() {
+        if pos + i >= s.len() {
+            return pos;
+        }
+        if s.byte_at(pos + i) != kw.byte_at(i) {
+            return pos;
+        }
+        i = i + 1;
+    }
+    return pos + kw.len();
+}
+
+pub fn split_lines(s: String) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut start: u64 = 0;
+    let mut i: u64 = 0;
+    while i < s.len() {
+        if s.byte_at(i) == 10 {
+            lines.push(s.substring(start, i));
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+    if start < s.len() {
+        lines.push(s.substring(start, s.len()));
+    }
+    return lines;
+}
