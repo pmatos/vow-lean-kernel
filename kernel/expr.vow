@@ -23,21 +23,56 @@ pub enum ExprData {
     Lit { data: LitData },
     Proj { sname: u64, idx: u64, expr: u64 },
     MData { expr: u64 },
+    Local { id: u64, ty: u64 },
 }
 
 pub struct ExprArena {
     entries: Vec<ExprData>,
+    tags: Vec<u64>,
+    f1: Vec<u64>,
+    f2: Vec<u64>,
+    f3: Vec<u64>,
+    f4: Vec<u64>,
+    bi: Vec<u64>,
+    nondep: Vec<u64>,
+    levels: Vec<Vec<u64>>,
+    lit_kind: Vec<u64>,
+    lit_val: Vec<String>,
 }
 
 pub fn expr_arena_new() -> ExprArena {
-    return ExprArena { entries: Vec::new() };
+    return ExprArena {
+        entries: Vec::new(),
+        tags: Vec::new(),
+        f1: Vec::new(),
+        f2: Vec::new(),
+        f3: Vec::new(),
+        f4: Vec::new(),
+        bi: Vec::new(),
+        nondep: Vec::new(),
+        levels: Vec::new(),
+        lit_kind: Vec::new(),
+        lit_val: Vec::new(),
+    };
 }
 
-pub fn expr_arena_add(arena: ExprArena, data: ExprData) -> u64 vow {
-    requires: arena.entries.len() < 128
-} {
+fn push_flat(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64, pf4: u64, pbi: u64, pnondep: u64, plevels: Vec<u64>, plit_kind: u64, plit_val: String) {
+    arena.tags.push(tag);
+    arena.f1.push(pf1);
+    arena.f2.push(pf2);
+    arena.f3.push(pf3);
+    arena.f4.push(pf4);
+    arena.bi.push(pbi);
+    arena.nondep.push(pnondep);
+    arena.levels.push(plevels);
+    arena.lit_kind.push(plit_kind);
+    arena.lit_val.push(plit_val);
+}
+
+pub fn expr_arena_add(arena: ExprArena, data: ExprData) -> u64 {
     let idx: u64 = arena.entries.len();
     arena.entries.push(data);
+    push_flat(arena, 99, 0, 0, 0, 0, 0, 0, Vec::new(), 0, String::from(""));
     return idx;
 }
 
@@ -45,4 +80,92 @@ pub fn expr_arena_get(arena: ExprArena, idx: u64) -> ExprData vow {
     requires: idx < arena.entries.len()
 } {
     return arena.entries[idx];
+}
+
+pub fn expr_add_bvar(arena: ExprArena, idx: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::BVar { idx: idx });
+    push_flat(arena, 0, idx, 0, 0, 0, 0, 0, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_sort(arena: ExprArena, level: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Sort { level: level });
+    push_flat(arena, 1, level, 0, 0, 0, 0, 0, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_const(arena: ExprArena, name: u64, lvls: Vec<u64>) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Const { name: name, levels: lvls });
+    push_flat(arena, 2, name, 0, 0, 0, 0, 0, lvls, 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_app(arena: ExprArena, func: u64, arg: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::App { func: func, arg: arg });
+    push_flat(arena, 3, func, arg, 0, 0, 0, 0, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+fn bi_to_u64(b: BinderInfo) -> u64 {
+    return 0;
+}
+
+pub fn expr_add_lambda(arena: ExprArena, name: u64, ty: u64, body: u64, binfo: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Lambda { name: name, ty: ty, body: body, bi: BinderInfo::Default });
+    push_flat(arena, 4, name, ty, body, 0, binfo, 0, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_forall(arena: ExprArena, name: u64, ty: u64, body: u64, binfo: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Forall { name: name, ty: ty, body: body, bi: BinderInfo::Default });
+    push_flat(arena, 5, name, ty, body, 0, binfo, 0, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_let(arena: ExprArena, name: u64, ty: u64, val: u64, body: u64, nd: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Let { name: name, ty: ty, val: val, body: body, nondep: false });
+    push_flat(arena, 6, name, ty, val, body, 0, nd, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_lit_nat(arena: ExprArena, val: String) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Lit { data: LitData::Nat { val: val } });
+    push_flat(arena, 7, 0, 0, 0, 0, 0, 0, Vec::new(), 0, val);
+    return i;
+}
+
+pub fn expr_add_lit_str(arena: ExprArena, val: String) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Lit { data: LitData::Str { val: val } });
+    push_flat(arena, 7, 0, 0, 0, 0, 0, 0, Vec::new(), 1, val);
+    return i;
+}
+
+pub fn expr_add_proj(arena: ExprArena, sname: u64, idx: u64, inner: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Proj { sname: sname, idx: idx, expr: inner });
+    push_flat(arena, 8, sname, idx, inner, 0, 0, 0, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_mdata(arena: ExprArena, inner: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::MData { expr: inner });
+    push_flat(arena, 9, inner, 0, 0, 0, 0, 0, Vec::new(), 0, String::from(""));
+    return i;
+}
+
+pub fn expr_add_local(arena: ExprArena, id: u64, ty: u64) -> u64 {
+    let i: u64 = arena.entries.len();
+    arena.entries.push(ExprData::Local { id: id, ty: ty });
+    push_flat(arena, 10, id, ty, 0, 0, 0, 0, Vec::new(), 0, String::from(""));
+    return i;
 }

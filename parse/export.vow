@@ -32,18 +32,18 @@ fn unwrap_pos(opt: Option<u64>) -> u64 {
     return result;
 }
 
-fn parse_binder_info(s: String, pos: u64) -> BinderInfo {
+fn parse_binder_info(s: String, pos: u64) -> u64 {
     let r: ParseStrResult = json_parse_string(s, pos);
     if r.val.eq(String::from("implicit")) {
-        return BinderInfo::Implicit;
+        return 1;
     }
     if r.val.eq(String::from("strictImplicit")) {
-        return BinderInfo::StrictImplicit;
+        return 2;
     }
     if r.val.eq(String::from("instImplicit")) {
-        return BinderInfo::InstImplicit;
+        return 3;
     }
-    return BinderInfo::Default;
+    return 0;
 }
 
 fn parse_def_hints(s: String, pos: u64) -> DefHint {
@@ -131,7 +131,7 @@ fn parse_level_line(env: Environment, line: String, il_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("succ")) {
         Option::Some(succ_pos) => {
             let pred: u64 = json_parse_uint(line, succ_pos).val;
-            level_arena_add(env.levels, LevelData::Succ { pred: pred });
+            level_add_succ(env.levels, pred);
             return true;
         },
         Option::None => {},
@@ -140,7 +140,7 @@ fn parse_level_line(env: Environment, line: String, il_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("max")) {
         Option::Some(max_pos) => {
             let arr: ParseUintArrayResult = json_parse_uint_array(line, max_pos);
-            level_arena_add(env.levels, LevelData::Max { lhs: arr.vals[0], rhs: arr.vals[1] });
+            level_add_max(env.levels, arr.vals[0], arr.vals[1]);
             return true;
         },
         Option::None => {},
@@ -149,7 +149,7 @@ fn parse_level_line(env: Environment, line: String, il_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("imax")) {
         Option::Some(imax_pos) => {
             let arr: ParseUintArrayResult = json_parse_uint_array(line, imax_pos);
-            level_arena_add(env.levels, LevelData::IMax { lhs: arr.vals[0], rhs: arr.vals[1] });
+            level_add_imax(env.levels, arr.vals[0], arr.vals[1]);
             return true;
         },
         Option::None => {},
@@ -158,13 +158,13 @@ fn parse_level_line(env: Environment, line: String, il_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("param")) {
         Option::Some(param_pos) => {
             let name: u64 = json_parse_uint(line, param_pos).val;
-            level_arena_add(env.levels, LevelData::Param { name: name });
+            level_add_param(env.levels, name);
             return true;
         },
         Option::None => {},
     }
 
-    level_arena_add(env.levels, LevelData::Zero);
+    level_add_zero(env.levels);
     return true;
 }
 
@@ -172,7 +172,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("bvar")) {
         Option::Some(bvar_pos) => {
             let idx: u64 = json_parse_uint(line, bvar_pos).val;
-            expr_arena_add(env.exprs, ExprData::BVar { idx: idx });
+            expr_add_bvar(env.exprs, idx);
             return true;
         },
         Option::None => {},
@@ -181,7 +181,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("sort")) {
         Option::Some(sort_pos) => {
             let level: u64 = json_parse_uint(line, sort_pos).val;
-            expr_arena_add(env.exprs, ExprData::Sort { level: level });
+            expr_add_sort(env.exprs, level);
             return true;
         },
         Option::None => {},
@@ -191,7 +191,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
         Option::Some(const_pos) => {
             let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, const_pos, String::from("name")))).val;
             let levels: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, const_pos, String::from("us")))).vals;
-            expr_arena_add(env.exprs, ExprData::Const { name: name, levels: levels });
+            expr_add_const(env.exprs, name, levels);
             return true;
         },
         Option::None => {},
@@ -201,7 +201,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
         Option::Some(app_pos) => {
             let func: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, app_pos, String::from("fn")))).val;
             let arg: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, app_pos, String::from("arg")))).val;
-            expr_arena_add(env.exprs, ExprData::App { func: func, arg: arg });
+            expr_add_app(env.exprs, func, arg);
             return true;
         },
         Option::None => {},
@@ -212,8 +212,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("name")))).val;
             let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("type")))).val;
             let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("body")))).val;
-            let bi: BinderInfo = parse_binder_info(line, unwrap_pos(json_find_key(line, lam_pos, String::from("bi"))));
-            expr_arena_add(env.exprs, ExprData::Lambda { name: name, ty: ty, body: body, bi: bi });
+            let bi: u64 = parse_binder_info(line, unwrap_pos(json_find_key(line, lam_pos, String::from("bi"))));
+            expr_add_lambda(env.exprs, name, ty, body, bi);
             return true;
         },
         Option::None => {},
@@ -224,8 +224,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("name")))).val;
             let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("type")))).val;
             let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("body")))).val;
-            let bi: BinderInfo = parse_binder_info(line, unwrap_pos(json_find_key(line, fa_pos, String::from("bi"))));
-            expr_arena_add(env.exprs, ExprData::Forall { name: name, ty: ty, body: body, bi: bi });
+            let bi: u64 = parse_binder_info(line, unwrap_pos(json_find_key(line, fa_pos, String::from("bi"))));
+            expr_add_forall(env.exprs, name, ty, body, bi);
             return true;
         },
         Option::None => {},
@@ -238,7 +238,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("value")))).val;
             let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("body")))).val;
             let nondep: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, let_pos, String::from("nondep"))));
-            expr_arena_add(env.exprs, ExprData::Let { name: name, ty: ty, val: val, body: body, nondep: nondep });
+            expr_add_let(env.exprs, name, ty, val, body, 0);
             return true;
         },
         Option::None => {},
@@ -249,7 +249,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let sname: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("typeName")))).val;
             let idx: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("idx")))).val;
             let expr: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("struct")))).val;
-            expr_arena_add(env.exprs, ExprData::Proj { sname: sname, idx: idx, expr: expr });
+            expr_add_proj(env.exprs, sname, idx, expr);
             return true;
         },
         Option::None => {},
@@ -258,7 +258,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("natVal")) {
         Option::Some(nat_pos) => {
             let val: String = json_parse_string(line, nat_pos).val;
-            expr_arena_add(env.exprs, ExprData::Lit { data: LitData::Nat { val: val } });
+            expr_add_lit_nat(env.exprs, val);
             return true;
         },
         Option::None => {},
@@ -267,7 +267,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("strVal")) {
         Option::Some(str_pos) => {
             let val: String = json_parse_string(line, str_pos).val;
-            expr_arena_add(env.exprs, ExprData::Lit { data: LitData::Str { val: val } });
+            expr_add_lit_str(env.exprs, val);
             return true;
         },
         Option::None => {},
@@ -276,7 +276,7 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("mdata")) {
         Option::Some(mdata_pos) => {
             let expr: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, mdata_pos, String::from("expr")))).val;
-            expr_arena_add(env.exprs, ExprData::MData { expr: expr });
+            expr_add_mdata(env.exprs, expr);
             return true;
         },
         Option::None => {},
@@ -294,7 +294,7 @@ fn parse_axiom_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: AxiomDecl = AxiomDecl { name: name, level_params: level_params, ty: ty, is_unsafe: is_unsafe };
-    env_add_decl(env, name_str, DeclEntry::Axiom { decl: decl });
+    env_add_decl_full(env, name_str, 0, ty, 0, level_params, DeclEntry::Axiom { decl: decl });
     return true;
 }
 
@@ -310,7 +310,7 @@ fn parse_def_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: DefinitionDecl = DefinitionDecl { name: name, level_params: level_params, ty: ty, val: val, hints: hints, safety: safety, all: all };
-    env_add_decl(env, name_str, DeclEntry::Definition { decl: decl });
+    env_add_decl_full(env, name_str, 1, ty, val, level_params, DeclEntry::Definition { decl: decl });
     return true;
 }
 
@@ -324,7 +324,7 @@ fn parse_thm_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: TheoremDecl = TheoremDecl { name: name, level_params: level_params, ty: ty, val: val, all: all };
-    env_add_decl(env, name_str, DeclEntry::Theorem { decl: decl });
+    env_add_decl_full(env, name_str, 2, ty, val, level_params, DeclEntry::Theorem { decl: decl });
     return true;
 }
 
@@ -339,7 +339,7 @@ fn parse_opaque_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: OpaqueDecl = OpaqueDecl { name: name, level_params: level_params, ty: ty, val: val, is_unsafe: is_unsafe, all: all };
-    env_add_decl(env, name_str, DeclEntry::Opaque { decl: decl });
+    env_add_decl_full(env, name_str, 3, ty, val, level_params, DeclEntry::Opaque { decl: decl });
     return true;
 }
 
@@ -352,7 +352,7 @@ fn parse_quot_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: QuotDecl = QuotDecl { name: name, level_params: level_params, ty: ty, kind: kind };
-    env_add_decl(env, name_str, DeclEntry::Quot { decl: decl });
+    env_add_decl_full(env, name_str, 4, ty, 0, level_params, DeclEntry::Quot { decl: decl });
     return true;
 }
 
@@ -460,10 +460,14 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     let decl: InductiveDecl = InductiveDecl { types: types, ctors: ctors, recs: recs };
 
     let mut name_str: String = String::from("[inductive]");
+    let mut ind_ty: u64 = 0;
+    let mut ind_lp: Vec<u64> = Vec::new();
     if types.len() > 0 {
         name_str = name_to_string(env.names, types[0].name);
+        ind_ty = types[0].ty;
+        ind_lp = types[0].level_params;
     }
-    env_add_decl(env, name_str, DeclEntry::Inductive { decl: decl });
+    env_add_decl_full(env, name_str, 5, ind_ty, 0, ind_lp, DeclEntry::Inductive { decl: decl });
     return true;
 }
 

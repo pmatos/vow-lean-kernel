@@ -1,0 +1,136 @@
+module DefEq
+
+use kernel.name
+use kernel.level
+use kernel.expr
+use kernel.env
+use kernel.subst
+use kernel.whnf
+
+pub fn is_level_zero(env: Environment, level: u64) -> u64 {
+    let t: u64 = env.levels.tags[level];
+    if t == 0 {
+        return 1;
+    }
+    if t == 3 {
+        return is_level_zero(env, env.levels.f2[level]);
+    }
+    return 0;
+}
+
+pub fn is_level_eq(env: Environment, l1: u64, l2: u64) -> u64 {
+    if l1 == l2 {
+        return 1;
+    }
+    let t1: u64 = env.levels.tags[l1];
+    let t2: u64 = env.levels.tags[l2];
+    if t1 != t2 {
+        return 0;
+    }
+    if t1 == 0 {
+        return 1;
+    }
+    if t1 == 1 {
+        return is_level_eq(env, env.levels.f1[l1], env.levels.f1[l2]);
+    }
+    if t1 == 2 || t1 == 3 {
+        if is_level_eq(env, env.levels.f1[l1], env.levels.f1[l2]) > 0 && is_level_eq(env, env.levels.f2[l1], env.levels.f2[l2]) > 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if t1 == 4 {
+        if env.levels.f1[l1] == env.levels.f1[l2] {
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}
+
+fn is_levels_eq(env: Environment, ls1: Vec<u64>, ls2: Vec<u64>) -> u64 {
+    if ls1.len() != ls2.len() {
+        return 0;
+    }
+    let mut i: u64 = 0;
+    while i < ls1.len() {
+        if is_level_eq(env, ls1[i], ls2[i]) == 0 {
+            return 0;
+        }
+        i = i + 1;
+    }
+    return 1;
+}
+
+pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
+    if e1 == e2 {
+        return 1;
+    }
+    let w1: u64 = whnf(env, e1);
+    let w2: u64 = whnf(env, e2);
+    if w1 == w2 {
+        return 1;
+    }
+
+    let t1: u64 = env.exprs.tags[w1];
+    let t2: u64 = env.exprs.tags[w2];
+
+    if t1 != t2 {
+        return 0;
+    }
+
+    if t1 == 1 {
+        return is_level_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]);
+    }
+    if t1 == 2 {
+        if env.exprs.f1[w1] != env.exprs.f1[w2] {
+            return 0;
+        }
+        return is_levels_eq(env, env.exprs.levels[w1], env.exprs.levels[w2]);
+    }
+    if t1 == 3 {
+        if is_def_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]) > 0 && is_def_eq(env, env.exprs.f2[w1], env.exprs.f2[w2]) > 0 {
+            return 1;
+        }
+        return 0;
+    }
+    if t1 == 4 || t1 == 5 {
+        let ty1: u64 = env.exprs.f2[w1];
+        let ty2: u64 = env.exprs.f2[w2];
+        let body1: u64 = env.exprs.f3[w1];
+        let body2: u64 = env.exprs.f3[w2];
+        if is_def_eq(env, ty1, ty2) == 0 {
+            return 0;
+        }
+        let local_id: u64 = env.next_local_id;
+        env.next_local_id = env.next_local_id + 1;
+        let local_expr: u64 = expr_add_local(env.exprs, local_id, ty1);
+        let ob1: u64 = instantiate(env, body1, local_expr);
+        let ob2: u64 = instantiate(env, body2, local_expr);
+        return is_def_eq(env, ob1, ob2);
+    }
+    if t1 == 0 {
+        if env.exprs.f1[w1] == env.exprs.f1[w2] {
+            return 1;
+        }
+        return 0;
+    }
+    if t1 == 10 {
+        if env.exprs.f1[w1] == env.exprs.f1[w2] {
+            return 1;
+        }
+        return 0;
+    }
+    if t1 == 7 {
+        let lk1: u64 = env.exprs.lit_kind[w1];
+        let lk2: u64 = env.exprs.lit_kind[w2];
+        if lk1 != lk2 {
+            return 0;
+        }
+        if env.exprs.lit_val[w1].eq(env.exprs.lit_val[w2]) {
+            return 1;
+        }
+        return 0;
+    }
+    return 0;
+}

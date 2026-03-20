@@ -10,12 +10,21 @@ pub enum LevelData {
 
 pub struct LevelArena {
     entries: Vec<LevelData>,
+    tags: Vec<u64>,
+    f1: Vec<u64>,
+    f2: Vec<u64>,
 }
 
 pub fn level_arena_new() -> LevelArena {
     let mut entries: Vec<LevelData> = Vec::new();
     entries.push(LevelData::Zero);
-    return LevelArena { entries: entries };
+    let mut tags: Vec<u64> = Vec::new();
+    tags.push(0);
+    let mut f1s: Vec<u64> = Vec::new();
+    f1s.push(0);
+    let mut f2s: Vec<u64> = Vec::new();
+    f2s.push(0);
+    return LevelArena { entries: entries, tags: tags, f1: f1s, f2: f2s };
 }
 
 pub fn level_arena_add(arena: LevelArena, data: LevelData) -> u64 vow {
@@ -23,6 +32,9 @@ pub fn level_arena_add(arena: LevelArena, data: LevelData) -> u64 vow {
 } {
     let idx: u64 = arena.entries.len();
     arena.entries.push(data);
+    arena.tags.push(99);
+    arena.f1.push(0);
+    arena.f2.push(0);
     return idx;
 }
 
@@ -30,4 +42,77 @@ pub fn level_arena_get(arena: LevelArena, idx: u64) -> LevelData vow {
     requires: idx < arena.entries.len()
 } {
     return arena.entries[idx];
+}
+
+pub fn level_add_zero(arena: LevelArena) -> u64 {
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(LevelData::Zero);
+    arena.tags.push(0);
+    arena.f1.push(0);
+    arena.f2.push(0);
+    return idx;
+}
+
+pub fn level_add_succ(arena: LevelArena, pred: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < arena.tags.len() {
+        if arena.tags[i] == 1 && arena.f1[i] == pred {
+            return i;
+        }
+        i = i + 1;
+    }
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(LevelData::Succ { pred: pred });
+    arena.tags.push(1);
+    arena.f1.push(pred);
+    arena.f2.push(0);
+    return idx;
+}
+
+pub fn level_add_max(arena: LevelArena, lhs: u64, rhs: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < arena.tags.len() {
+        if arena.tags[i] == 2 && arena.f1[i] == lhs && arena.f2[i] == rhs {
+            return i;
+        }
+        i = i + 1;
+    }
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(LevelData::Max { lhs: lhs, rhs: rhs });
+    arena.tags.push(2);
+    arena.f1.push(lhs);
+    arena.f2.push(rhs);
+    return idx;
+}
+
+pub fn level_add_imax(arena: LevelArena, lhs: u64, rhs: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < arena.tags.len() {
+        if arena.tags[i] == 3 && arena.f1[i] == lhs && arena.f2[i] == rhs {
+            return i;
+        }
+        i = i + 1;
+    }
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(LevelData::IMax { lhs: lhs, rhs: rhs });
+    arena.tags.push(3);
+    arena.f1.push(lhs);
+    arena.f2.push(rhs);
+    return idx;
+}
+
+pub fn level_add_param(arena: LevelArena, name: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < arena.tags.len() {
+        if arena.tags[i] == 4 && arena.f1[i] == name {
+            return i;
+        }
+        i = i + 1;
+    }
+    let idx: u64 = arena.entries.len();
+    arena.entries.push(LevelData::Param { name: name });
+    arena.tags.push(4);
+    arena.f1.push(name);
+    arena.f2.push(0);
+    return idx;
 }

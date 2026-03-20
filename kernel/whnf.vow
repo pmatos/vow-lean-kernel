@@ -1,0 +1,87 @@
+module Whnf
+
+use kernel.name
+use kernel.level
+use kernel.expr
+use kernel.env
+use kernel.subst
+
+fn rebuild_apps(env: Environment, head: u64, args: Vec<u64>) -> u64 {
+    let mut result: u64 = head;
+    let mut i: u64 = args.len();
+    while i > 0 {
+        i = i - 1;
+        result = expr_add_app(env.exprs, result, args[i]);
+    }
+    return result;
+}
+
+pub fn whnf(env: Environment, expr: u64) -> u64 {
+    if expr >= env.exprs.tags.len() {
+        return expr;
+    }
+    let mut fuel: u64 = 10000;
+    let mut cur: u64 = expr;
+    while fuel > 0 {
+        fuel = fuel - 1;
+        if cur >= env.exprs.tags.len() {
+            return cur;
+        }
+
+        let mut args: Vec<u64> = Vec::new();
+        let mut head: u64 = cur;
+        let mut peeling: u64 = 1;
+        while peeling > 0 {
+            if env.exprs.tags[head] == 3 {
+                args.push(env.exprs.f2[head]);
+                head = env.exprs.f1[head];
+            } else {
+                peeling = 0;
+            }
+        }
+
+        let ht: u64 = env.exprs.tags[head];
+        let mut reduced: u64 = 0;
+
+        if ht == 4 && args.len() > 0 {
+            let body: u64 = env.exprs.f3[head];
+            let a: u64 = args[args.len() - 1];
+            let new_head: u64 = instantiate(env, body, a);
+            let mut rebuilt: u64 = new_head;
+            if args.len() > 1 {
+                let mut ri: u64 = args.len() - 1;
+                while ri > 0 {
+                    ri = ri - 1;
+                    rebuilt = expr_add_app(env.exprs, rebuilt, args[ri]);
+                }
+            }
+            cur = rebuilt;
+            reduced = 1;
+        } else if ht == 6 {
+            let val: u64 = env.exprs.f3[head];
+            let body: u64 = env.exprs.f4[head];
+            let new_head: u64 = instantiate(env, body, val);
+            cur = rebuild_apps(env, new_head, args);
+            reduced = 1;
+        } else if ht == 2 {
+            let name_idx: u64 = env.exprs.f1[head];
+            let levels: Vec<u64> = env.exprs.levels[head];
+            let name_str: String = name_to_string(env.names, name_idx);
+            let lookup: DeclLookup = env_lookup(env, name_str);
+            if lookup.found > 0 && lookup.kind == 1 {
+                let val: u64 = subst_level_params(env, lookup.val, lookup.level_params, levels);
+                cur = rebuild_apps(env, val, args);
+                reduced = 1;
+            }
+        } else if ht == 9 {
+            let inner: u64 = env.exprs.f1[head];
+            cur = rebuild_apps(env, inner, args);
+            reduced = 1;
+        }
+
+        if reduced == 0 {
+            return rebuild_apps(env, head, args);
+        }
+    }
+    return cur;
+}

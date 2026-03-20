@@ -1,0 +1,240 @@
+module Infer
+
+use kernel.name
+use kernel.level
+use kernel.expr
+use kernel.env
+use kernel.subst
+use kernel.whnf
+use kernel.def_eq
+
+pub fn err_val() -> u64 {
+    return 4294967295;
+}
+
+pub fn is_err(v: u64) -> u64 {
+    if v == 4294967295 {
+        return 1;
+    }
+    return 0;
+}
+
+fn ensure_sort(env: Environment, expr: u64) -> u64 {
+    if is_err(expr) > 0 {
+        return err_val();
+    }
+    let w: u64 = whnf(env, expr);
+    if w >= env.exprs.tags.len() {
+        return err_val();
+    }
+    if env.exprs.tags[w] == 1 {
+        return env.exprs.f1[w];
+    }
+    return err_val();
+}
+
+fn ensure_forall(env: Environment, expr: u64) -> u64 {
+    if is_err(expr) > 0 {
+        return err_val();
+    }
+    let w: u64 = whnf(env, expr);
+    if w >= env.exprs.tags.len() {
+        return err_val();
+    }
+    if env.exprs.tags[w] == 5 {
+        return w;
+    }
+    return err_val();
+}
+
+fn infer_const(env: Environment, name_idx: u64, levels: Vec<u64>) -> u64 {
+    let name_str: String = name_to_string(env.names, name_idx);
+    let lookup: DeclLookup = env_lookup(env, name_str);
+    if lookup.found == 0 {
+        return err_val();
+    }
+    return subst_level_params(env, lookup.ty, lookup.level_params, levels);
+}
+
+fn infer_app(env: Environment, func: u64, arg: u64) -> u64 {
+    let func_ty: u64 = infer(env, func);
+    if is_err(func_ty) > 0 {
+        return err_val();
+    }
+    let fa: u64 = ensure_forall(env, func_ty);
+    if is_err(fa) > 0 {
+        return err_val();
+    }
+    let arg_ty: u64 = infer(env, arg);
+    if is_err(arg_ty) > 0 {
+        return err_val();
+    }
+    let domain: u64 = env.exprs.f2[fa];
+    let codomain: u64 = env.exprs.f3[fa];
+    if is_def_eq(env, arg_ty, domain) == 0 {
+        return err_val();
+    }
+    return instantiate(env, codomain, arg);
+}
+
+fn infer_lambda(env: Environment, name: u64, ty: u64, body: u64, bi: u64) -> u64 {
+    let ty_sort: u64 = ensure_sort(env, infer(env, ty));
+    if is_err(ty_sort) > 0 {
+        return err_val();
+    }
+    let local_id: u64 = env.next_local_id;
+    env.next_local_id = env.next_local_id + 1;
+    let local_expr: u64 = expr_add_local(env.exprs, local_id, ty);
+    let opened_body: u64 = instantiate(env, body, local_expr);
+    let body_ty: u64 = infer(env, opened_body);
+    if is_err(body_ty) > 0 {
+        return err_val();
+    }
+    let abstracted: u64 = abstract_expr(env, body_ty, local_id);
+    return expr_add_forall(env.exprs, name, ty, abstracted, bi);
+}
+
+fn infer_forall(env: Environment, name: u64, ty: u64, body: u64, bi: u64) -> u64 {
+    let ty_ty: u64 = infer(env, ty);
+    if is_err(ty_ty) > 0 {
+        return err_val();
+    }
+    let level_u: u64 = ensure_sort(env, ty_ty);
+    if is_err(level_u) > 0 {
+        return err_val();
+    }
+    let local_id: u64 = env.next_local_id;
+    env.next_local_id = env.next_local_id + 1;
+    let local_expr: u64 = expr_add_local(env.exprs, local_id, ty);
+    let opened_body: u64 = instantiate(env, body, local_expr);
+    let body_ty: u64 = infer(env, opened_body);
+    if is_err(body_ty) > 0 {
+        return err_val();
+    }
+    let level_v: u64 = ensure_sort(env, body_ty);
+    if is_err(level_v) > 0 {
+        return err_val();
+    }
+    let result_level: u64 = level_imax(env, level_u, level_v);
+    return expr_add_sort(env.exprs, result_level);
+}
+
+fn infer_let(env: Environment, ty: u64, val: u64, body: u64) -> u64 {
+    let ty_sort: u64 = ensure_sort(env, infer(env, ty));
+    if is_err(ty_sort) > 0 {
+        return err_val();
+    }
+    let val_ty: u64 = infer(env, val);
+    if is_err(val_ty) > 0 {
+        return err_val();
+    }
+    if is_def_eq(env, val_ty, ty) == 0 {
+        return err_val();
+    }
+    let opened_body: u64 = instantiate(env, body, val);
+    return infer(env, opened_body);
+}
+
+pub fn infer(env: Environment, expr: u64) -> u64 {
+    if expr >= env.exprs.tags.len() {
+        return err_val();
+    }
+    let t: u64 = env.exprs.tags[expr];
+
+    if t == 10 {
+        return env.exprs.f2[expr];
+    }
+    if t == 0 || t == 8 {
+        return err_val();
+    }
+    if t == 1 {
+        let new_level: u64 = level_add_succ(env.levels, env.exprs.f1[expr]);
+        return expr_add_sort(env.exprs, new_level);
+    }
+    if t == 2 {
+        return infer_const(env, env.exprs.f1[expr], env.exprs.levels[expr]);
+    }
+    if t == 3 {
+        return infer_app(env, env.exprs.f1[expr], env.exprs.f2[expr]);
+    }
+    if t == 4 {
+        return infer_lambda(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr], env.exprs.bi[expr]);
+    }
+    if t == 5 {
+        return infer_forall(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr], env.exprs.bi[expr]);
+    }
+    if t == 6 {
+        return infer_let(env, env.exprs.f2[expr], env.exprs.f3[expr], env.exprs.f4[expr]);
+    }
+    if t == 9 {
+        return infer(env, env.exprs.f1[expr]);
+    }
+    if t == 7 {
+        let lk: u64 = env.exprs.lit_kind[expr];
+        if lk == 0 {
+            let nat_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("Nat")));
+            return expr_add_const(env.exprs, nat_name, Vec::new());
+        }
+        let str_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("String")));
+        return expr_add_const(env.exprs, str_name, Vec::new());
+    }
+    return err_val();
+}
+
+fn check_def(env: Environment, ty: u64, val: u64) -> u64 {
+    let ty_sort: u64 = ensure_sort(env, infer(env, ty));
+    if is_err(ty_sort) > 0 {
+        return 1;
+    }
+    let val_ty: u64 = infer(env, val);
+    if is_err(val_ty) > 0 {
+        return 1;
+    }
+    if is_def_eq(env, val_ty, ty) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn check_axiom(env: Environment, ty: u64) -> u64 {
+    let ty_sort: u64 = ensure_sort(env, infer(env, ty));
+    if is_err(ty_sort) > 0 {
+        return 1;
+    }
+    return 0;
+}
+
+fn check_theorem(env: Environment, ty: u64, val: u64) -> u64 {
+    let ty_sort: u64 = ensure_sort(env, infer(env, ty));
+    if is_err(ty_sort) > 0 {
+        return 1;
+    }
+    if is_level_zero(env, ty_sort) == 0 {
+        return 1;
+    }
+    let val_ty: u64 = infer(env, val);
+    if is_err(val_ty) > 0 {
+        return 1;
+    }
+    if is_def_eq(env, val_ty, ty) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
+pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
+    let kind: u64 = env.decl_kinds[di];
+    let ty: u64 = env.decl_tys[di];
+    let val: u64 = env.decl_vals[di];
+
+    if kind == 0 {
+        return check_axiom(env, ty);
+    }
+    if kind == 1 || kind == 3 {
+        return check_def(env, ty, val);
+    }
+    if kind == 2 {
+        return check_theorem(env, ty, val);
+    }
+    return 2;
+}
