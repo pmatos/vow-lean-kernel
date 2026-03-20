@@ -223,6 +223,19 @@ fn check_theorem(env: Environment, ty: u64, val: u64) -> u64 {
 }
 
 pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
+    let lps: Vec<u64> = env.decl_lps[di];
+    let mut pi: u64 = 0;
+    while pi < lps.len() {
+        let mut pj: u64 = pi + 1;
+        while pj < lps.len() {
+            if lps[pi] == lps[pj] {
+                return 1;
+            }
+            pj = pj + 1;
+        }
+        pi = pi + 1;
+    }
+
     let kind: u64 = env.decl_kinds[di];
     let ty: u64 = env.decl_tys[di];
     let val: u64 = env.decl_vals[di];

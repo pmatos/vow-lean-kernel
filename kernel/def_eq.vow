@@ -18,7 +18,32 @@ pub fn is_level_zero(env: Environment, level: u64) -> u64 {
     return 0;
 }
 
-pub fn is_level_eq(env: Environment, l1: u64, l2: u64) -> u64 {
+pub fn level_normalize(env: Environment, level: u64) -> u64 {
+    let t: u64 = env.levels.tags[level];
+    if t == 0 || t == 4 {
+        return level;
+    }
+    if t == 1 {
+        let np: u64 = level_normalize(env, env.levels.f1[level]);
+        if np == env.levels.f1[level] {
+            return level;
+        }
+        return level_add_succ(env.levels, np);
+    }
+    if t == 2 {
+        let na: u64 = level_normalize(env, env.levels.f1[level]);
+        let nb: u64 = level_normalize(env, env.levels.f2[level]);
+        return level_max(env, na, nb);
+    }
+    if t == 3 {
+        let na: u64 = level_normalize(env, env.levels.f1[level]);
+        let nb: u64 = level_normalize(env, env.levels.f2[level]);
+        return level_imax(env, na, nb);
+    }
+    return level;
+}
+
+fn is_level_eq_structural(env: Environment, l1: u64, l2: u64) -> u64 {
     if l1 == l2 {
         return 1;
     }
@@ -31,10 +56,10 @@ pub fn is_level_eq(env: Environment, l1: u64, l2: u64) -> u64 {
         return 1;
     }
     if t1 == 1 {
-        return is_level_eq(env, env.levels.f1[l1], env.levels.f1[l2]);
+        return is_level_eq_structural(env, env.levels.f1[l1], env.levels.f1[l2]);
     }
     if t1 == 2 || t1 == 3 {
-        if is_level_eq(env, env.levels.f1[l1], env.levels.f1[l2]) > 0 && is_level_eq(env, env.levels.f2[l1], env.levels.f2[l2]) > 0 {
+        if is_level_eq_structural(env, env.levels.f1[l1], env.levels.f1[l2]) > 0 && is_level_eq_structural(env, env.levels.f2[l1], env.levels.f2[l2]) > 0 {
             return 1;
         }
         return 0;
@@ -46,6 +71,18 @@ pub fn is_level_eq(env: Environment, l1: u64, l2: u64) -> u64 {
         return 0;
     }
     return 0;
+}
+
+pub fn is_level_eq(env: Environment, l1: u64, l2: u64) -> u64 {
+    if l1 == l2 {
+        return 1;
+    }
+    let n1: u64 = level_normalize(env, l1);
+    let n2: u64 = level_normalize(env, l2);
+    if n1 == n2 {
+        return 1;
+    }
+    return is_level_eq_structural(env, n1, n2);
 }
 
 fn is_levels_eq(env: Environment, ls1: Vec<u64>, ls2: Vec<u64>) -> u64 {
