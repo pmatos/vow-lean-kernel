@@ -457,7 +457,50 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         ri = ri + 1;
     }
 
+    // Populate flat arrays for inductive types
+    let type_start: u64 = env.ind_type_names.len();
+    let mut ti2: u64 = 0;
+    while ti2 < types.len() {
+        env.ind_type_names.push(types[ti2].name);
+        env.ind_type_tys.push(types[ti2].ty);
+        env.ind_type_num_params.push(types[ti2].num_params);
+        env.ind_type_num_indices.push(types[ti2].num_indices);
+        env.ind_type_lps.push(types[ti2].level_params);
+        ti2 = ti2 + 1;
+    }
+    let type_count: u64 = types.len();
+
+    // Populate flat arrays for constructors and register (kind=6)
+    let ctor_start: u64 = env.ind_ctor_inducts.len();
+    let mut ci2: u64 = 0;
+    while ci2 < ctors.len() {
+        env.ind_ctor_inducts.push(ctors[ci2].induct);
+        env.ind_ctor_tys.push(ctors[ci2].ty);
+        env.ind_ctor_num_params.push(ctors[ci2].num_params);
+        env.ind_ctor_num_fields.push(ctors[ci2].num_fields);
+        let cn: String = name_to_string(env.names, ctors[ci2].name);
+        env_add_decl_simple(env, cn, 6, ctors[ci2].ty, 0, ctors[ci2].level_params);
+        ci2 = ci2 + 1;
+    }
+    let ctor_count: u64 = ctors.len();
+
+    // Register recursors (kind=7)
+    let mut ri2: u64 = 0;
+    while ri2 < recs.len() {
+        let rn: String = name_to_string(env.names, recs[ri2].name);
+        env_add_decl_simple(env, rn, 7, recs[ri2].ty, 0, recs[ri2].level_params);
+        ri2 = ri2 + 1;
+    }
+
+    // Store ranges
+    env.ind_type_start.push(type_start);
+    env.ind_type_count.push(type_count);
+    env.ind_ctor_start.push(ctor_start);
+    env.ind_ctor_count.push(ctor_count);
+
     let decl: InductiveDecl = InductiveDecl { types: types, ctors: ctors, recs: recs };
+    env.ind_decls.push(decl);
+    let ind_idx: u64 = env.ind_decls.len() - 1;
 
     let mut name_str: String = String::from("[inductive]");
     let mut ind_ty: u64 = 0;
@@ -467,7 +510,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         ind_ty = types[0].ty;
         ind_lp = types[0].level_params;
     }
-    env_add_decl_full(env, name_str, 5, ind_ty, 0, ind_lp, DeclEntry::Inductive { decl: decl });
+    env_add_decl_simple(env, name_str, 5, ind_ty, ind_idx, ind_lp);
     return true;
 }
 

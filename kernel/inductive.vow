@@ -1,0 +1,193 @@
+module Inductive
+
+use kernel.name
+use kernel.level
+use kernel.expr
+use kernel.env
+use kernel.subst
+use kernel.whnf
+use kernel.def_eq
+use kernel.infer
+
+fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices: u64) -> u64 {
+    let mut cur: u64 = ty;
+
+    let mut pi: u64 = 0;
+    while pi < num_params {
+        if cur >= env.exprs.tags.len() || env.exprs.tags[cur] != 5 {
+            return err_val();
+        }
+        cur = env.exprs.f3[cur];
+        pi = pi + 1;
+    }
+
+    let mut ii: u64 = 0;
+    while ii < num_indices {
+        let w: u64 = whnf(env, cur);
+        if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 {
+            return err_val();
+        }
+        cur = env.exprs.f3[w];
+        ii = ii + 1;
+    }
+
+    let w: u64 = whnf(env, cur);
+    if w >= env.exprs.tags.len() || env.exprs.tags[w] != 1 {
+        return err_val();
+    }
+    return env.exprs.f1[w];
+}
+
+fn check_strict_positive(env: Environment, field_ty: u64, ind_name: u64) -> u64 {
+    let w: u64 = whnf(env, field_ty);
+    if w >= env.exprs.tags.len() { return 1; }
+    if env.exprs.tags[w] == 5 {
+        let domain: u64 = env.exprs.f2[w];
+        if expr_contains_const(env.exprs, domain, ind_name) > 0 {
+            return 0;
+        }
+        let local_id: u64 = env.next_local_id;
+        env.next_local_id = env.next_local_id + 1;
+        let local_expr: u64 = expr_add_local(env.exprs, local_id, domain);
+        let body: u64 = instantiate(env, env.exprs.f3[w], local_expr);
+        return check_strict_positive(env, body, ind_name);
+    }
+    return 1;
+}
+
+fn check_field_universe(env: Environment, field_ty: u64, ind_sort_level: u64) -> u64 {
+    if is_level_zero(env, ind_sort_level) > 0 {
+        return 1;
+    }
+    let field_type_ty: u64 = infer(env, field_ty);
+    if is_err(field_type_ty) > 0 { return 0; }
+    let field_sort: u64 = ensure_sort(env, field_type_ty);
+    if is_err(field_sort) > 0 { return 0; }
+    return is_level_leq(env, field_sort, ind_sort_level);
+}
+
+fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, param_locals: Vec<u64>) -> u64 {
+    let mut args: Vec<u64> = Vec::new();
+    let mut head: u64 = result;
+    while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
+        args.push(env.exprs.f2[head]);
+        head = env.exprs.f1[head];
+    }
+
+    if head >= env.exprs.tags.len() { return 1; }
+    if env.exprs.tags[head] != 2 { return 1; }
+    if env.exprs.f1[head] != ind_name { return 1; }
+
+    let result_levels: Vec<u64> = env.exprs.levels[head];
+    if result_levels.len() != ind_level_params.len() { return 1; }
+    let mut li: u64 = 0;
+    while li < result_levels.len() {
+        if env.levels.tags[result_levels[li]] != 4 { return 1; }
+        if env.levels.f1[result_levels[li]] != ind_level_params[li] { return 1; }
+        li = li + 1;
+    }
+
+    let total: u64 = ind_num_params + ind_num_indices;
+    if args.len() != total { return 1; }
+
+    let mut pi: u64 = 0;
+    while pi < ind_num_params {
+        let arg_idx: u64 = args.len() - 1 - pi;
+        let expected_local: u64 = param_locals[pi];
+        if args[arg_idx] != expected_local { return 1; }
+        pi = pi + 1;
+    }
+
+    let mut ii: u64 = 0;
+    while ii < ind_num_indices {
+        let arg_idx: u64 = args.len() - 1 - ind_num_params - ii;
+        if expr_contains_const(env.exprs, args[arg_idx], ind_name) > 0 {
+            return 1;
+        }
+        ii = ii + 1;
+    }
+
+    return 0;
+}
+
+fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, ctor_ty: u64, ctor_num_params: u64, ctor_num_fields: u64, ind_sort_level: u64) -> u64 {
+    let mut cty: u64 = ctor_ty;
+    let mut ity: u64 = ind_ty;
+    let mut param_locals: Vec<u64> = Vec::new();
+
+    let mut pi: u64 = 0;
+    while pi < ctor_num_params {
+        if cty >= env.exprs.tags.len() || env.exprs.tags[cty] != 5 { return 1; }
+        if ity >= env.exprs.tags.len() || env.exprs.tags[ity] != 5 { return 1; }
+
+        let c_domain: u64 = env.exprs.f2[cty];
+        let i_domain: u64 = env.exprs.f2[ity];
+
+        if is_def_eq(env, c_domain, i_domain) == 0 { return 1; }
+
+        let local_id: u64 = env.next_local_id;
+        env.next_local_id = env.next_local_id + 1;
+        let local_expr: u64 = expr_add_local(env.exprs, local_id, c_domain);
+        param_locals.push(local_expr);
+
+        cty = instantiate(env, env.exprs.f3[cty], local_expr);
+        ity = instantiate(env, env.exprs.f3[ity], local_expr);
+        pi = pi + 1;
+    }
+
+    let mut fi: u64 = 0;
+    while fi < ctor_num_fields {
+        if cty >= env.exprs.tags.len() || env.exprs.tags[cty] != 5 { return 1; }
+
+        let field_ty: u64 = env.exprs.f2[cty];
+
+        if check_strict_positive(env, field_ty, ind_name) == 0 { return 1; }
+        if check_field_universe(env, field_ty, ind_sort_level) == 0 { return 1; }
+
+        let local_id: u64 = env.next_local_id;
+        env.next_local_id = env.next_local_id + 1;
+        let local_expr: u64 = expr_add_local(env.exprs, local_id, field_ty);
+        cty = instantiate(env, env.exprs.f3[cty], local_expr);
+        fi = fi + 1;
+    }
+
+    return check_result_type(env, cty, ind_name, ind_num_params, ind_num_indices, ind_level_params, param_locals);
+}
+
+pub fn check_inductive(env: Environment, di: u64) -> u64 {
+    let ind_idx: u64 = env.decl_vals[di];
+
+    let type_start: u64 = env.ind_type_start[ind_idx];
+    let type_count: u64 = env.ind_type_count[ind_idx];
+    let ctor_start: u64 = env.ind_ctor_start[ind_idx];
+    let ctor_count: u64 = env.ind_ctor_count[ind_idx];
+
+    let mut ti: u64 = 0;
+    while ti < type_count {
+        let tidx: u64 = type_start + ti;
+        let it_name: u64 = env.ind_type_names[tidx];
+        let it_ty: u64 = env.ind_type_tys[tidx];
+        let it_num_params: u64 = env.ind_type_num_params[tidx];
+        let it_num_indices: u64 = env.ind_type_num_indices[tidx];
+        let it_level_params: Vec<u64> = env.ind_type_lps[tidx];
+
+        let ind_sort_level: u64 = check_inductive_type(env, it_ty, it_num_params, it_num_indices);
+        if is_err(ind_sort_level) > 0 { return 1; }
+
+        let mut ci: u64 = 0;
+        while ci < ctor_count {
+            let cidx: u64 = ctor_start + ci;
+            let c_induct: u64 = env.ind_ctor_inducts[cidx];
+            if c_induct == it_name {
+                let c_ty: u64 = env.ind_ctor_tys[cidx];
+                let c_num_params: u64 = env.ind_ctor_num_params[cidx];
+                let c_num_fields: u64 = env.ind_ctor_num_fields[cidx];
+                let r: u64 = check_constructor(env, it_name, it_ty, it_num_params, it_num_indices, it_level_params, c_ty, c_num_params, c_num_fields, ind_sort_level);
+                if r > 0 { return 1; }
+            }
+            ci = ci + 1;
+        }
+        ti = ti + 1;
+    }
+    return 0;
+}
