@@ -484,11 +484,37 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     }
     let ctor_count: u64 = ctors.len();
 
-    // Register recursors (kind=7)
+    // Parse rules directly into env flat arrays from JSON (avoiding nested Vec access)
     let mut ri2: u64 = 0;
-    while ri2 < recs.len() {
+    while ri2 < rec_positions.len() {
+        let rec_flat_idx: u64 = env.rec_names.len();
+        env.rec_names.push(recs[ri2].name);
+        env.rec_num_params.push(recs[ri2].num_params);
+        env.rec_num_indices.push(recs[ri2].num_indices);
+        env.rec_num_motives.push(recs[ri2].num_motives);
+        env.rec_num_minors.push(recs[ri2].num_minors);
+        if recs[ri2].k {
+            env.rec_k.push(1);
+        } else {
+            env.rec_k.push(0);
+        }
+        let rule_start: u64 = env.rec_rule_ctors.len();
+        let rules_arr_pos: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, rec_positions[ri2], String::from("rules"))));
+        let rule_count: u64 = rules_arr_pos.len();
+        let mut rj: u64 = 0;
+        while rj < rule_count {
+            let r_ctor: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, rules_arr_pos[rj], String::from("ctor")))).val;
+            let r_nfields: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, rules_arr_pos[rj], String::from("nfields")))).val;
+            let r_rhs: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, rules_arr_pos[rj], String::from("rhs")))).val;
+            env.rec_rule_ctors.push(r_ctor);
+            env.rec_rule_nfields.push(r_nfields);
+            env.rec_rule_rhs.push(r_rhs);
+            rj = rj + 1;
+        }
+        env.rec_rule_start.push(rule_start);
+        env.rec_rule_count.push(rule_count);
         let rn: String = name_to_string(env.names, recs[ri2].name);
-        env_add_decl_simple(env, rn, 7, recs[ri2].ty, 0, recs[ri2].level_params);
+        env_add_decl_simple(env, rn, 7, recs[ri2].ty, rec_flat_idx, recs[ri2].level_params);
         ri2 = ri2 + 1;
     }
 

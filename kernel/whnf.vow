@@ -73,6 +73,73 @@ pub fn whnf(env: Environment, expr: u64) -> u64 {
                 cur = rebuild_apps(env, val, args);
                 reduced = 1;
             }
+            if reduced == 0 && lookup.found > 0 && lookup.kind == 7 {
+                let rec_idx: u64 = lookup.val;
+                let np: u64 = env.rec_num_params[rec_idx];
+                let nm: u64 = env.rec_num_motives[rec_idx];
+                let nmi: u64 = env.rec_num_minors[rec_idx];
+                let ni: u64 = env.rec_num_indices[rec_idx];
+                let major_idx: u64 = np + nm + nmi + ni;
+                if args.len() > major_idx {
+                    let major_rev_pos: u64 = args.len() - 1 - major_idx;
+                    let major: u64 = whnf(env, args[major_rev_pos]);
+                    let mut major_args: Vec<u64> = Vec::new();
+                    let mut major_head: u64 = major;
+                    while major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 3 {
+                        major_args.push(env.exprs.f2[major_head]);
+                        major_head = env.exprs.f1[major_head];
+                    }
+                    if major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 2 {
+                        let ctor_name_idx: u64 = env.exprs.f1[major_head];
+                        let ctor_name_str: String = name_to_string(env.names, ctor_name_idx);
+                        let ctor_lookup: DeclLookup = env_lookup(env, ctor_name_str);
+                        if ctor_lookup.found > 0 && ctor_lookup.kind == 6 {
+                            let rs: u64 = env.rec_rule_start[rec_idx];
+                            let rc: u64 = env.rec_rule_count[rec_idx];
+                            let mut found_rule: u64 = 0;
+                            let mut rule_nfields: u64 = 0;
+                            let mut rule_rhs: u64 = 0;
+                            let mut rri: u64 = 0;
+                            while rri < rc {
+                                if env.rec_rule_ctors[rs + rri] == ctor_name_idx {
+                                    found_rule = 1;
+                                    rule_nfields = env.rec_rule_nfields[rs + rri];
+                                    rule_rhs = env.rec_rule_rhs[rs + rri];
+                                    rri = rc;
+                                }
+                                rri = rri + 1;
+                            }
+                            if found_rule > 0 && major_args.len() >= rule_nfields {
+                                let rhs: u64 = subst_level_params(env, rule_rhs, lookup.level_params, levels);
+                                let ppm: u64 = np + nm + nmi;
+                                let mut result: u64 = rhs;
+                                let mut ai: u64 = 0;
+                                while ai < ppm {
+                                    result = expr_add_app(env.exprs, result, args[args.len() - 1 - ai]);
+                                    ai = ai + 1;
+                                }
+                                if rule_nfields > 0 {
+                                    let mut fi: u64 = 0;
+                                    while fi < rule_nfields {
+                                        result = expr_add_app(env.exprs, result, major_args[rule_nfields - 1 - fi]);
+                                        fi = fi + 1;
+                                    }
+                                }
+                                if args.len() > major_idx + 1 {
+                                    let num_extras: u64 = args.len() - major_idx - 1;
+                                    let mut ei: u64 = num_extras;
+                                    while ei > 0 {
+                                        ei = ei - 1;
+                                        result = expr_add_app(env.exprs, result, args[ei]);
+                                    }
+                                }
+                                cur = result;
+                                reduced = 1;
+                            }
+                        }
+                    }
+                }
+            }
         } else if ht == 9 {
             let inner: u64 = env.exprs.f1[head];
             cur = rebuild_apps(env, inner, args);

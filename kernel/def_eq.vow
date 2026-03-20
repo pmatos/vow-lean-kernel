@@ -134,6 +134,26 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     let t2: u64 = env.exprs.tags[w2];
 
     if t1 != t2 {
+        if t1 == 4 {
+            let lam_ty: u64 = env.exprs.f2[w1];
+            let lam_body: u64 = env.exprs.f3[w1];
+            let local_id: u64 = env.next_local_id;
+            env.next_local_id = env.next_local_id + 1;
+            let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
+            let ob1: u64 = instantiate(env, lam_body, local_expr);
+            let ob2: u64 = expr_add_app(env.exprs, w2, local_expr);
+            return is_def_eq(env, ob1, ob2);
+        }
+        if t2 == 4 {
+            let lam_ty: u64 = env.exprs.f2[w2];
+            let lam_body: u64 = env.exprs.f3[w2];
+            let local_id: u64 = env.next_local_id;
+            env.next_local_id = env.next_local_id + 1;
+            let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
+            let ob2: u64 = instantiate(env, lam_body, local_expr);
+            let ob1: u64 = expr_add_app(env.exprs, w1, local_expr);
+            return is_def_eq(env, ob1, ob2);
+        }
         return 0;
     }
 
