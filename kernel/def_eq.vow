@@ -6,6 +6,7 @@ use kernel.expr
 use kernel.env
 use kernel.subst
 use kernel.whnf
+use kernel.infer
 
 pub fn is_level_zero(env: Environment, level: u64) -> u64 {
     let t: u64 = env.levels.tags[level];
@@ -130,6 +131,23 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         return 1;
     }
 
+    let pi_ty: u64 = infer(env, w1);
+    if is_err(pi_ty) == 0 {
+        let pi_ty_w: u64 = whnf(env, pi_ty);
+        if pi_ty_w < env.exprs.tags.len() && env.exprs.tags[pi_ty_w] != 1 {
+            let pi_ty_ty: u64 = infer(env, pi_ty);
+            if is_err(pi_ty_ty) == 0 {
+                let pi_sort: u64 = ensure_sort(env, pi_ty_ty);
+                if is_err(pi_sort) == 0 && is_level_zero(env, pi_sort) > 0 {
+                    let pi_ty2: u64 = infer(env, w2);
+                    if is_err(pi_ty2) == 0 && is_def_eq(env, pi_ty, pi_ty2) > 0 {
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+
     let t1: u64 = env.exprs.tags[w1];
     let t2: u64 = env.exprs.tags[w2];
 
@@ -162,7 +180,11 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     }
     if t1 == 2 {
         if env.exprs.f1[w1] != env.exprs.f1[w2] {
-            return 0;
+            let n1s: String = name_to_string(env.names, env.exprs.f1[w1]);
+            let n2s: String = name_to_string(env.names, env.exprs.f1[w2]);
+            if str_eq(n1s, n2s) == 0 {
+                return 0;
+            }
         }
         return is_levels_eq(env, env.exprs.levels[w1], env.exprs.levels[w2]);
     }
