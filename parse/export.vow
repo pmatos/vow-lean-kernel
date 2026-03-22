@@ -474,6 +474,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     let ctor_start: u64 = env.ind_ctor_inducts.len();
     let mut ci2: u64 = 0;
     while ci2 < ctors.len() {
+        env.ind_ctor_names.push(ctors[ci2].name);
         env.ind_ctor_inducts.push(ctors[ci2].induct);
         env.ind_ctor_tys.push(ctors[ci2].ty);
         env.ind_ctor_num_params.push(ctors[ci2].num_params);

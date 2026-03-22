@@ -199,6 +199,12 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         }
         return 0;
     }
+    if t1 == 8 {
+        if env.exprs.f1[w1] == env.exprs.f1[w2] && env.exprs.f2[w1] == env.exprs.f2[w2] {
+            return is_def_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]);
+        }
+        return 0;
+    }
     if t1 == 7 {
         let lk1: u64 = env.exprs.lit_kind[w1];
         let lk2: u64 = env.exprs.lit_kind[w2];

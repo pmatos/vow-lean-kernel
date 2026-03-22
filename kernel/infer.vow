@@ -136,6 +136,119 @@ fn infer_let(env: Environment, ty: u64, val: u64, body: u64) -> u64 {
     return infer(env, opened_body);
 }
 
+fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u64) -> u64 {
+    let struct_ty: u64 = infer(env, struct_expr);
+    if is_err(struct_ty) > 0 { return err_val(); }
+
+    let name_str: String = name_to_string(env.names, struct_name);
+    let ind_lk: DeclLookup = env_lookup(env, name_str);
+    if ind_lk.found == 0 || ind_lk.kind != 5 { return err_val(); }
+    let ind_idx: u64 = ind_lk.val;
+
+    let ctor_count: u64 = env.ind_ctor_count[ind_idx];
+    if ctor_count != 1 { return err_val(); }
+
+    let cs: u64 = env.ind_ctor_start[ind_idx];
+    let num_params: u64 = env.ind_ctor_num_params[cs];
+    let num_fields: u64 = env.ind_ctor_num_fields[cs];
+    if proj_idx >= num_fields { return err_val(); }
+
+    // Get struct type's level args and parameter args
+    let w_sty: u64 = whnf(env, struct_ty);
+    let mut sty_args: Vec<u64> = Vec::new();
+    let mut sty_head: u64 = w_sty;
+    while sty_head < env.exprs.tags.len() && env.exprs.tags[sty_head] == 3 {
+        sty_args.push(env.exprs.f2[sty_head]);
+        sty_head = env.exprs.f1[sty_head];
+    }
+    if sty_head >= env.exprs.tags.len() || env.exprs.tags[sty_head] != 2 {
+        return err_val();
+    }
+    let struct_levels: Vec<u64> = env.exprs.levels[sty_head];
+
+    // Prop-projection check
+    let ind_ty: u64 = env.ind_type_tys[env.ind_type_start[ind_idx]];
+    let ind_lps: Vec<u64> = ind_lk.level_params;
+    let ind_ty_subst: u64 = subst_level_params(env, ind_ty, ind_lps, struct_levels);
+    let mut ind_sort_ty: u64 = ind_ty_subst;
+    let mut skip_params: u64 = 0;
+    let tp: u64 = env.ind_type_num_params[env.ind_type_start[ind_idx]];
+    let ti: u64 = env.ind_type_num_indices[env.ind_type_start[ind_idx]];
+    while skip_params < tp + ti {
+        let ws: u64 = whnf(env, ind_sort_ty);
+        if ws >= env.exprs.tags.len() || env.exprs.tags[ws] != 5 { return err_val(); }
+        ind_sort_ty = env.exprs.f3[ws];
+        skip_params = skip_params + 1;
+    }
+    let ind_sort_w: u64 = whnf(env, ind_sort_ty);
+    let mut is_prop: u64 = 0;
+    if ind_sort_w < env.exprs.tags.len() && env.exprs.tags[ind_sort_w] == 1 {
+        let sort_level: u64 = env.exprs.f1[ind_sort_w];
+        if is_level_zero(env, sort_level) > 0 {
+            is_prop = 1;
+        }
+    }
+
+    if is_prop > 0 {
+        let ctor_ty: u64 = env.ind_ctor_tys[cs];
+        let mut prop_cur: u64 = subst_level_params(env, ctor_ty, ind_lps, struct_levels);
+        let mut pp: u64 = 0;
+        while pp < num_params {
+            let pw: u64 = whnf(env, prop_cur);
+            if pw >= env.exprs.tags.len() || env.exprs.tags[pw] != 5 { return err_val(); }
+            let param_val: u64 = sty_args[sty_args.len() - 1 - pp];
+            prop_cur = instantiate(env, env.exprs.f3[pw], param_val);
+            pp = pp + 1;
+        }
+        let mut found_dep_data: u64 = 0;
+        let mut fj: u64 = 0;
+        while fj <= proj_idx {
+            let fw: u64 = whnf(env, prop_cur);
+            if fw >= env.exprs.tags.len() || env.exprs.tags[fw] != 5 { return err_val(); }
+            let field_ty: u64 = env.exprs.f2[fw];
+            let field_body: u64 = env.exprs.f3[fw];
+            let field_ty_ty: u64 = infer(env, field_ty);
+            if is_err(field_ty_ty) > 0 { return err_val(); }
+            let field_sort: u64 = ensure_sort(env, field_ty_ty);
+            if is_err(field_sort) > 0 { return err_val(); }
+            let field_is_prop: u64 = is_level_zero(env, field_sort);
+            if field_is_prop == 0 {
+                if fj == proj_idx { return err_val(); }
+                if has_loose_bvar_zero(env, field_body) > 0 {
+                    found_dep_data = 1;
+                }
+            }
+            if found_dep_data > 0 && fj == proj_idx { return err_val(); }
+            let proj_j: u64 = expr_add_proj(env.exprs, struct_name, fj, struct_expr);
+            prop_cur = instantiate(env, field_body, proj_j);
+            fj = fj + 1;
+        }
+    }
+
+    // Compute the projected field's type
+    let ctor_ty2: u64 = env.ind_ctor_tys[cs];
+    let mut cur_ty: u64 = subst_level_params(env, ctor_ty2, ind_lps, struct_levels);
+    let mut pi: u64 = 0;
+    while pi < num_params {
+        let w: u64 = whnf(env, cur_ty);
+        if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 { return err_val(); }
+        let param_val: u64 = sty_args[sty_args.len() - 1 - pi];
+        cur_ty = instantiate(env, env.exprs.f3[w], param_val);
+        pi = pi + 1;
+    }
+    let mut fi: u64 = 0;
+    while fi < proj_idx {
+        let w: u64 = whnf(env, cur_ty);
+        if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 { return err_val(); }
+        let proj_j: u64 = expr_add_proj(env.exprs, struct_name, fi, struct_expr);
+        cur_ty = instantiate(env, env.exprs.f3[w], proj_j);
+        fi = fi + 1;
+    }
+    let w: u64 = whnf(env, cur_ty);
+    if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 { return err_val(); }
+    return env.exprs.f2[w];
+}
+
 pub fn infer(env: Environment, expr: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return err_val();
@@ -145,8 +258,11 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     if t == 10 {
         return env.exprs.f2[expr];
     }
-    if t == 0 || t == 8 {
+    if t == 0 {
         return err_val();
+    }
+    if t == 8 {
+        return infer_proj(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr]);
     }
     if t == 1 {
         let new_level: u64 = level_add_succ(env.levels, env.exprs.f1[expr]);
