@@ -5,6 +5,8 @@ use kernel.level
 use kernel.expr
 use kernel.env
 use kernel.subst
+use kernel.infer
+use kernel.def_eq
 
 fn rebuild_apps(env: Environment, head: u64, args: Vec<u64>) -> u64 {
     let mut result: u64 = head;
@@ -73,6 +75,33 @@ pub fn whnf(env: Environment, expr: u64) -> u64 {
                 cur = rebuild_apps(env, val, args);
                 reduced = 1;
             }
+            if reduced == 0 && lookup.found > 0 && lookup.kind == 4 {
+                let qk: u64 = lookup.val;
+                let mut quot_major_pos: u64 = 0;
+                let mut quot_fn_pos: u64 = 0;
+                let mut quot_expected_args: u64 = 0;
+                if qk == 2 { quot_expected_args = 6; quot_major_pos = 0; quot_fn_pos = 2; }
+                if qk == 3 { quot_expected_args = 5; quot_major_pos = 0; quot_fn_pos = 1; }
+                if quot_expected_args > 0 && args.len() >= quot_expected_args {
+                    let qv: u64 = whnf(env, args[quot_major_pos]);
+                    let mut qv_args: Vec<u64> = Vec::new();
+                    let mut qv_head: u64 = qv;
+                    while qv_head < env.exprs.tags.len() && env.exprs.tags[qv_head] == 3 {
+                        qv_args.push(env.exprs.f2[qv_head]);
+                        qv_head = env.exprs.f1[qv_head];
+                    }
+                    if qv_head < env.exprs.tags.len() && env.exprs.tags[qv_head] == 2 {
+                        let qv_ns: String = name_to_string(env.names, env.exprs.f1[qv_head]);
+                        let qv_lk: DeclLookup = env_lookup(env, qv_ns);
+                        if qv_lk.found > 0 && qv_lk.kind == 4 && qv_lk.val == 1 && qv_args.len() >= 3 {
+                            let a_val: u64 = qv_args[0];
+                            let fn_val: u64 = args[quot_fn_pos];
+                            cur = expr_add_app(env.exprs, fn_val, a_val);
+                            reduced = 1;
+                        }
+                    }
+                }
+            }
             if reduced == 0 && lookup.found > 0 && lookup.kind == 7 {
                 let rec_idx: u64 = lookup.val;
                 let np: u64 = env.rec_num_params[rec_idx];
@@ -89,6 +118,7 @@ pub fn whnf(env: Environment, expr: u64) -> u64 {
                         major_args.push(env.exprs.f2[major_head]);
                         major_head = env.exprs.f1[major_head];
                     }
+                    let mut iota_done: u64 = 0;
                     if major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 2 {
                         let ctor_name_idx: u64 = env.exprs.f1[major_head];
                         let ctor_name_str: String = name_to_string(env.names, ctor_name_idx);
@@ -134,6 +164,49 @@ pub fn whnf(env: Environment, expr: u64) -> u64 {
                                     }
                                 }
                                 cur = result;
+                                reduced = 1;
+                                iota_done = 1;
+                            }
+                        }
+                    }
+                    if iota_done == 0 && env.rec_k[rec_idx] > 0 && ni > 0 {
+                        let rs_k: u64 = env.rec_rule_start[rec_idx];
+                        let rc_k: u64 = env.rec_rule_count[rec_idx];
+                        if rc_k == 1 {
+                            let rule_rhs_k: u64 = env.rec_rule_rhs[rs_k];
+                            let ctor_name_k: u64 = env.rec_rule_ctors[rs_k];
+                            let mut ctor_app: u64 = expr_add_const(env.exprs, ctor_name_k, levels);
+                            let mut kpi: u64 = 0;
+                            while kpi < np {
+                                ctor_app = expr_add_app(env.exprs, ctor_app, args[args.len() - 1 - kpi]);
+                                kpi = kpi + 1;
+                            }
+                            let ctor_ty_k: u64 = infer(env, ctor_app);
+                            let major_ty_k: u64 = infer(env, args[major_rev_pos]);
+                            let mut k_ok: u64 = 0;
+                            if is_err(ctor_ty_k) == 0 && is_err(major_ty_k) == 0 {
+                                if is_def_eq(env, ctor_ty_k, major_ty_k) > 0 {
+                                    k_ok = 1;
+                                }
+                            }
+                            if k_ok > 0 {
+                                let rhs_k: u64 = subst_level_params(env, rule_rhs_k, lookup.level_params, levels);
+                                let ppm_k: u64 = np + nm + nmi;
+                                let mut result_k: u64 = rhs_k;
+                                let mut ai_k: u64 = 0;
+                                while ai_k < ppm_k {
+                                    result_k = expr_add_app(env.exprs, result_k, args[args.len() - 1 - ai_k]);
+                                    ai_k = ai_k + 1;
+                                }
+                                if args.len() > major_idx + 1 {
+                                    let num_extras_k: u64 = args.len() - major_idx - 1;
+                                    let mut ei_k: u64 = num_extras_k;
+                                    while ei_k > 0 {
+                                        ei_k = ei_k - 1;
+                                        result_k = expr_add_app(env.exprs, result_k, args[ei_k]);
+                                    }
+                                }
+                                cur = result_k;
                                 reduced = 1;
                             }
                         }

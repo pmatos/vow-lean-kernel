@@ -350,9 +350,14 @@ fn parse_quot_decl(env: Environment, line: String) -> bool {
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, qt_pos, String::from("type")))).val;
     let kind: QuotKind = parse_quot_kind(line, unwrap_pos(json_find_key(line, qt_pos, String::from("kind"))));
 
+    let kind_str: ParseStrResult = json_parse_string(line, unwrap_pos(json_find_key(line, qt_pos, String::from("kind"))));
+    let mut qk: u64 = 0;
+    if kind_str.val.len() == 4 && kind_str.val.byte_at(0) == 99 { qk = 1; }
+    if kind_str.val.len() == 4 && kind_str.val.byte_at(0) == 108 { qk = 2; }
+    if kind_str.val.len() == 3 { qk = 3; }
     let name_str: String = name_to_string(env.names, name);
     let decl: QuotDecl = QuotDecl { name: name, level_params: level_params, ty: ty, kind: kind };
-    env_add_decl_full(env, name_str, 4, ty, 0, level_params, DeclEntry::Quot { decl: decl });
+    env_add_decl_full(env, name_str, 4, ty, qk, level_params, DeclEntry::Quot { decl: decl });
     return true;
 }
 

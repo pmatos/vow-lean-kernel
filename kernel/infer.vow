@@ -389,7 +389,7 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
     if kind == 5 {
         return check_inductive(env, di);
     }
-    if kind == 6 || kind == 7 {
+    if kind == 4 || kind == 6 || kind == 7 {
         return 0;
     }
     return 2;

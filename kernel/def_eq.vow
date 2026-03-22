@@ -148,6 +148,48 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         }
     }
 
+    if is_err(pi_ty) == 0 {
+        let eta_ty_w: u64 = whnf(env, pi_ty);
+        let mut eta_args: Vec<u64> = Vec::new();
+        let mut eta_head: u64 = eta_ty_w;
+        while eta_head < env.exprs.tags.len() && env.exprs.tags[eta_head] == 3 {
+            eta_args.push(env.exprs.f2[eta_head]);
+            eta_head = env.exprs.f1[eta_head];
+        }
+        if eta_head < env.exprs.tags.len() && env.exprs.tags[eta_head] == 2 {
+            let eta_name_idx: u64 = env.exprs.f1[eta_head];
+            let eta_name_str: String = name_to_string(env.names, eta_name_idx);
+            let eta_lk: DeclLookup = env_lookup(env, eta_name_str);
+            if eta_lk.found > 0 && eta_lk.kind == 5 {
+                let eta_ind_idx: u64 = eta_lk.val;
+                let eta_cc: u64 = env.ind_ctor_count[eta_ind_idx];
+                let eta_ni: u64 = env.ind_type_num_indices[env.ind_type_start[eta_ind_idx]];
+                if eta_cc == 1 && eta_ni == 0 {
+                    let eta_cs: u64 = env.ind_ctor_start[eta_ind_idx];
+                    let eta_nf: u64 = env.ind_ctor_num_fields[eta_cs];
+                    let eta_np: u64 = env.ind_ctor_num_params[eta_cs];
+                    if eta_nf == 0 {
+                        return 1;
+                    }
+                    let mut eta_ok: u64 = 1;
+                    let mut efi: u64 = 0;
+                    while efi < eta_nf {
+                        let p1: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w1);
+                        let p2: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w2);
+                        if is_def_eq(env, p1, p2) == 0 {
+                            eta_ok = 0;
+                            efi = eta_nf;
+                        }
+                        efi = efi + 1;
+                    }
+                    if eta_ok > 0 {
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+
     let t1: u64 = env.exprs.tags[w1];
     let t2: u64 = env.exprs.tags[w2];
 
