@@ -108,7 +108,7 @@ pub fn is_level_leq(env: Environment, a: u64, b: u64) -> u64 {
     if env.levels.tags[na] == 0 { return 1; }
     if env.levels.tags[nb] == 2 {
         if is_level_leq(env, na, env.levels.f1[nb]) > 0 { return 1; }
-        return is_level_leq(env, na, env.levels.f2[nb]);
+        if is_level_leq(env, na, env.levels.f2[nb]) > 0 { return 1; }
     }
     if env.levels.tags[na] == 1 && env.levels.tags[nb] == 1 {
         return is_level_leq(env, env.levels.f1[na], env.levels.f1[nb]);
@@ -117,6 +117,10 @@ pub fn is_level_leq(env: Environment, a: u64, b: u64) -> u64 {
         if is_level_leq(env, env.levels.f1[na], nb) > 0 && is_level_leq(env, env.levels.f2[na], nb) > 0 {
             return 1;
         }
+    }
+    if env.levels.tags[na] == 3 {
+        let imax_as_max: u64 = level_max(env, env.levels.f1[na], env.levels.f2[na]);
+        return is_level_leq(env, imax_as_max, nb);
     }
     return 0;
 }

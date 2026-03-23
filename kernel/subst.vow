@@ -72,7 +72,9 @@ pub fn level_imax(env: Environment, l1: u64, l2: u64) -> u64 {
         return level_max(env, a, b);
     }
     if t2 == 3 {
-        return level_imax(env, l1, env.levels.f2[l2]);
+        let ia: u64 = level_imax(env, l1, env.levels.f1[l2]);
+        let ib: u64 = level_imax(env, l1, env.levels.f2[l2]);
+        return level_max(env, ia, ib);
     }
     if env.levels.tags[l1] == 0 {
         return l2;
