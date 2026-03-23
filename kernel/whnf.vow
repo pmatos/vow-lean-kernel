@@ -18,7 +18,15 @@ fn rebuild_apps(env: Environment, head: u64, args: Vec<u64>) -> u64 {
     return result;
 }
 
+pub fn whnf_no_delta(env: Environment, expr: u64) -> u64 {
+    return whnf_core(env, expr, 0);
+}
+
 pub fn whnf(env: Environment, expr: u64) -> u64 {
+    return whnf_core(env, expr, 1);
+}
+
+pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return expr;
     }
@@ -70,7 +78,7 @@ pub fn whnf(env: Environment, expr: u64) -> u64 {
             let levels: Vec<u64> = env.exprs.levels[head];
             let name_str: String = name_to_string(env.names, name_idx);
             let lookup: DeclLookup = env_lookup(env, name_str);
-            if lookup.found > 0 && lookup.kind == 1 {
+            if lookup.found > 0 && lookup.kind == 1 && do_delta > 0 {
                 let val: u64 = subst_level_params(env, lookup.val, lookup.level_params, levels);
                 cur = rebuild_apps(env, val, args);
                 reduced = 1;

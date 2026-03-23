@@ -308,9 +308,19 @@ fn parse_def_decl(env: Environment, line: String) -> bool {
     let safety: Safety = parse_safety(line, unwrap_pos(json_find_key(line, def_pos, String::from("safety"))));
     let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, def_pos, String::from("all")))).vals;
 
+    let mut def_height: u64 = 0;
+    let hints_pos2: u64 = unwrap_pos(json_find_key(line, def_pos, String::from("hints")));
+    let hp: u64 = skip_ws(line, hints_pos2);
+    if hp < line.len() && line.byte_at(hp) == 123 {
+        match json_find_key(line, hp, String::from("regular")) {
+            Option::Some(reg_p) => { def_height = json_parse_uint(line, reg_p).val; },
+            Option::None => {},
+        }
+    }
+
     let name_str: String = name_to_string(env.names, name);
     let decl: DefinitionDecl = DefinitionDecl { name: name, level_params: level_params, ty: ty, val: val, hints: hints, safety: safety, all: all };
-    env_add_decl_full(env, name_str, 1, ty, val, level_params, DeclEntry::Definition { decl: decl });
+    env_add_decl_full_h(env, name_str, 1, ty, val, level_params, DeclEntry::Definition { decl: decl }, def_height);
     return true;
 }
 

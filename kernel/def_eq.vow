@@ -153,6 +153,45 @@ pub fn is_level_leq(env: Environment, a: u64, b: u64) -> u64 {
     return 0;
 }
 
+fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
+    let mut h1: u64 = w1;
+    let mut h2: u64 = w2;
+    while h1 < env.exprs.tags.len() && env.exprs.tags[h1] == 3 {
+        h1 = env.exprs.f1[h1];
+    }
+    while h2 < env.exprs.tags.len() && env.exprs.tags[h2] == 3 {
+        h2 = env.exprs.f1[h2];
+    }
+    if h1 >= env.exprs.tags.len() || h2 >= env.exprs.tags.len() { return 0; }
+    if env.exprs.tags[h1] != 2 || env.exprs.tags[h2] != 2 { return 0; }
+    let n1s: String = name_to_string(env.names, env.exprs.f1[h1]);
+    let n2s: String = name_to_string(env.names, env.exprs.f1[h2]);
+    let lk1: DeclLookup = env_lookup(env, n1s);
+    let lk2: DeclLookup = env_lookup(env, n2s);
+    if lk1.found == 0 || lk2.found == 0 { return 0; }
+    if lk1.kind != 1 || lk2.kind != 1 { return 0; }
+    let mut idx1: u64 = 0;
+    let mut i: u64 = 0;
+    while i < env.decl_names.len() {
+        if str_eq(env.decl_names[i], n1s) > 0 { idx1 = i; }
+        i = i + 1;
+    }
+    let mut idx2: u64 = 0;
+    let mut j: u64 = 0;
+    while j < env.decl_names.len() {
+        if str_eq(env.decl_names[j], n2s) > 0 { idx2 = j; }
+        j = j + 1;
+    }
+    let ht1: u64 = env.decl_heights[idx1];
+    let ht2: u64 = env.decl_heights[idx2];
+    if ht1 >= ht2 {
+        let u1: u64 = whnf(env, w1);
+        return is_def_eq(env, u1, w2);
+    }
+    let u2: u64 = whnf(env, w2);
+    return is_def_eq(env, w1, u2);
+}
+
 pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 {
         return 1;
@@ -246,7 +285,7 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
             let ob1: u64 = expr_add_app(env.exprs, w1, local_expr);
             return is_def_eq(env, ob1, ob2);
         }
-        return 0;
+        return lazy_delta_step(env, w1, w2);
     }
 
     if t1 == 1 {
@@ -312,5 +351,5 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         }
         return 0;
     }
-    return 0;
+    return lazy_delta_step(env, w1, w2);
 }
