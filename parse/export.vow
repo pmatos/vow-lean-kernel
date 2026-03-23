@@ -519,6 +519,16 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         }
         env.rec_rule_start.push(rule_start);
         env.rec_rule_count.push(rule_count);
+        let rec_nd: NameData = name_arena_get(env.names, recs[ri2].name);
+        if rec_nd.tag != 1 {
+            env.dup_error = 1;
+        }
+        if rec_nd.tag == 1 {
+            let rec_suffix: String = rec_nd.field_str;
+            if rec_suffix.len() != 3 || rec_suffix.byte_at(0) != 114 || rec_suffix.byte_at(1) != 101 || rec_suffix.byte_at(2) != 99 {
+                env.dup_error = 1;
+            }
+        }
         let rn: String = name_to_string(env.names, recs[ri2].name);
         env_add_decl_simple(env, rn, 7, recs[ri2].ty, rec_flat_idx, recs[ri2].level_params);
         ri2 = ri2 + 1;
