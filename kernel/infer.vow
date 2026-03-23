@@ -87,6 +87,7 @@ fn infer_app(env: Environment, func: u64, arg: u64) -> u64 {
     }
     let fa: u64 = ensure_forall(env, func_ty);
     if is_err(fa) > 0 {
+        if env.dup_error == 0 { env.dup_error = 2000000 + func; }
         return err_val();
     }
     let arg_ty: u64 = infer(env, arg);

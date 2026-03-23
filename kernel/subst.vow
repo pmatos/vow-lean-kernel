@@ -55,6 +55,16 @@ pub fn level_max(env: Environment, l1: u64, l2: u64) -> u64 {
         }
         return l2;
     }
+    if env.levels.tags[l1] == 2 {
+        if env.levels.f1[l1] == l2 || env.levels.f2[l1] == l2 {
+            return l1;
+        }
+    }
+    if env.levels.tags[l2] == 2 {
+        if env.levels.f1[l2] == l1 || env.levels.f2[l2] == l1 {
+            return l2;
+        }
+    }
     return level_add_max(env.levels, l1, l2);
 }
 

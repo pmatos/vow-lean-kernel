@@ -39,7 +39,14 @@ pub fn level_normalize(env: Environment, level: u64) -> u64 {
     if t == 3 {
         let na: u64 = level_normalize(env, env.levels.f1[level]);
         let nb: u64 = level_normalize(env, env.levels.f2[level]);
-        return level_imax(env, na, nb);
+        let ni: u64 = level_imax(env, na, nb);
+        if env.levels.tags[ni] == 3 {
+            let ni_l: u64 = env.levels.f1[ni];
+            if env.levels.tags[ni_l] == 1 && env.levels.tags[env.levels.f1[ni_l]] == 0 {
+                return env.levels.f2[ni];
+            }
+        }
+        return ni;
     }
     return level;
 }
