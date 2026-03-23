@@ -525,7 +525,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         }
         if rec_nd.tag == 1 {
             let rec_suffix: String = rec_nd.field_str;
-            if rec_suffix.len() != 3 || rec_suffix.byte_at(0) != 114 || rec_suffix.byte_at(1) != 101 || rec_suffix.byte_at(2) != 99 {
+            if rec_suffix.len() < 3 || rec_suffix.byte_at(0) != 114 || rec_suffix.byte_at(1) != 101 || rec_suffix.byte_at(2) != 99 {
                 env.dup_error = 1;
             }
         }
