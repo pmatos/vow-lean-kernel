@@ -175,18 +175,33 @@ pub fn whnf(env: Environment, expr: u64) -> u64 {
                         if rc_k == 1 {
                             let rule_rhs_k: u64 = env.rec_rule_rhs[rs_k];
                             let ctor_name_k: u64 = env.rec_rule_ctors[rs_k];
-                            let mut ctor_app: u64 = expr_add_const(env.exprs, ctor_name_k, levels);
-                            let mut kpi: u64 = 0;
-                            while kpi < np {
-                                ctor_app = expr_add_app(env.exprs, ctor_app, args[args.len() - 1 - kpi]);
-                                kpi = kpi + 1;
-                            }
-                            let ctor_ty_k: u64 = infer(env, ctor_app);
-                            let major_ty_k: u64 = infer(env, args[major_rev_pos]);
+                            let rec_name_data_k: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
+                            let ind_name_str_k: String = name_to_string(env.names, rec_name_data_k.parent);
+                            let ind_lk_k: DeclLookup = env_lookup(env, ind_name_str_k);
                             let mut k_ok: u64 = 0;
-                            if is_err(ctor_ty_k) == 0 && is_err(major_ty_k) == 0 {
-                                if is_def_eq(env, ctor_ty_k, major_ty_k) > 0 {
-                                    k_ok = 1;
+                            if ind_lk_k.found > 0 && ind_lk_k.kind == 5 {
+                                let ind_nlp: u64 = ind_lk_k.level_params.len();
+                                let rec_nlp: u64 = lookup.level_params.len();
+                                let mut ctor_levels: Vec<u64> = Vec::new();
+                                let mut cli: u64 = rec_nlp - ind_nlp;
+                                while cli < rec_nlp {
+                                    if cli < levels.len() {
+                                        ctor_levels.push(levels[cli]);
+                                    }
+                                    cli = cli + 1;
+                                }
+                                let mut ctor_app_k: u64 = expr_add_const(env.exprs, ctor_name_k, ctor_levels);
+                                let mut kpi: u64 = 0;
+                                while kpi < np {
+                                    ctor_app_k = expr_add_app(env.exprs, ctor_app_k, args[args.len() - 1 - kpi]);
+                                    kpi = kpi + 1;
+                                }
+                                let ctor_ty_k: u64 = infer(env, ctor_app_k);
+                                let major_ty_k: u64 = infer(env, args[major_rev_pos]);
+                                if is_err(ctor_ty_k) == 0 && is_err(major_ty_k) == 0 {
+                                    if is_def_eq(env, ctor_ty_k, major_ty_k) > 0 {
+                                        k_ok = 1;
+                                    }
                                 }
                             }
                             if k_ok > 0 {

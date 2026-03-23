@@ -24,6 +24,34 @@ fn main() -> i32 [io, read] {
         i = i + 1;
     }
 
+    let mut di_dup: u64 = 0;
+    while di_dup < env.decl_names.len() {
+        let mut dj: u64 = di_dup + 1;
+        while dj < env.decl_names.len() {
+            let mut dup_match: u64 = 1;
+            let a_name: String = env.decl_names[di_dup];
+            let b_name: String = env.decl_names[dj];
+            if a_name.len() != b_name.len() {
+                dup_match = 0;
+            }
+            if dup_match > 0 {
+                let mut dk: u64 = 0;
+                while dk < a_name.len() {
+                    if a_name.byte_at(dk) != b_name.byte_at(dk) {
+                        dup_match = 0;
+                        dk = a_name.len();
+                    }
+                    dk = dk + 1;
+                }
+            }
+            if dup_match > 0 {
+                return 1i32;
+            }
+            dj = dj + 1;
+        }
+        di_dup = di_dup + 1;
+    }
+
     let mut declined: u64 = 0;
     let mut di: u64 = 0;
     while di < env.decl_kinds.len() {

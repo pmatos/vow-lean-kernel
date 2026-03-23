@@ -54,6 +54,9 @@ fn infer_const(env: Environment, name_idx: u64, levels: Vec<u64>) -> u64 {
     if lookup.found == 0 {
         return err_val();
     }
+    if levels.len() != lookup.level_params.len() {
+        return err_val();
+    }
     return subst_level_params(env, lookup.ty, lookup.level_params, levels);
 }
 
