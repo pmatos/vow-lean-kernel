@@ -141,6 +141,26 @@ pub fn expr_add_let(arena: ExprArena, name: u64, ty: u64, val: u64, body: u64, n
     return i;
 }
 
+pub fn expr_add_nat_lit(arena: ExprArena, n: u64) -> u64 {
+    let mut s: String = String::new();
+    if n == 0 {
+        s.push_byte(48);
+    } else {
+        let mut tmp: u64 = n;
+        let mut digits: Vec<u64> = Vec::new();
+        while tmp > 0 {
+            digits.push(tmp % 10);
+            tmp = tmp / 10;
+        }
+        let mut di: u64 = digits.len();
+        while di > 0 {
+            di = di - 1;
+            s.push_byte(48 + digits[di]);
+        }
+    }
+    return expr_add_lit_nat(arena, s);
+}
+
 pub fn expr_add_lit_nat(arena: ExprArena, val: String) -> u64 {
     let i: u64 = arena.entries.len();
     arena.entries.push(ExprData::Lit { data: LitData::Nat { val: val } });

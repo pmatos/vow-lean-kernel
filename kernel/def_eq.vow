@@ -282,7 +282,7 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 {
         return 1;
     }
-    if env.exprs.tags.len() > 1600000 {
+    if env.exprs.tags.len() > 5000000 {
         return 0;
     }
     let w1: u64 = whnf(env, e1);
@@ -353,7 +353,7 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         if t1 == 7 {
             let lk1: u64 = env.exprs.lit_kind[w1];
             let lk2: u64 = env.exprs.lit_kind[w2];
-            if lk1 == lk2 && env.exprs.lit_val[w1].eq(env.exprs.lit_val[w2]) { return 1; }
+            if lk1 == lk2 && str_eq(env.exprs.lit_val[w1], env.exprs.lit_val[w2]) > 0 { return 1; }
             structural_done = 1;
         }
     }

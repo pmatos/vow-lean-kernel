@@ -322,7 +322,7 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return err_val();
     }
-    if env.exprs.tags.len() > 1600000 {
+    if env.exprs.tags.len() > 5000000 {
         return err_val();
     }
     if expr < env.exprs.infer_cache.len() {
