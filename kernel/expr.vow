@@ -38,6 +38,8 @@ pub struct ExprArena {
     levels: Vec<Vec<u64>>,
     lit_kind: Vec<u64>,
     lit_val: Vec<String>,
+    infer_cache: Vec<u64>,
+    whnf_cache: Vec<u64>,
 }
 
 pub fn expr_arena_new() -> ExprArena {
@@ -53,6 +55,8 @@ pub fn expr_arena_new() -> ExprArena {
         levels: Vec::new(),
         lit_kind: Vec::new(),
         lit_val: Vec::new(),
+        infer_cache: Vec::new(),
+        whnf_cache: Vec::new(),
     };
 }
 
@@ -67,6 +71,8 @@ fn push_flat(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64, pf4: u64,
     arena.levels.push(plevels);
     arena.lit_kind.push(plit_kind);
     arena.lit_val.push(plit_val);
+    arena.infer_cache.push(4294967294);
+    arena.whnf_cache.push(4294967294);
 }
 
 pub fn expr_arena_add(arena: ExprArena, data: ExprData) -> u64 {

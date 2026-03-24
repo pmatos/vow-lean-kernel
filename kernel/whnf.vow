@@ -30,11 +30,21 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return expr;
     }
+    if do_delta > 0 && expr < env.exprs.whnf_cache.len() {
+        let wc: u64 = env.exprs.whnf_cache[expr];
+        if wc != 4294967294 {
+            return wc;
+        }
+    }
+    let orig_expr: u64 = expr;
     let mut fuel: u64 = 10000;
     let mut cur: u64 = expr;
     while fuel > 0 {
         fuel = fuel - 1;
         if cur >= env.exprs.tags.len() {
+            if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
+                env.exprs.whnf_cache[orig_expr] = cur;
+            }
             return cur;
         }
 
@@ -299,8 +309,15 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         }
 
         if reduced == 0 {
-            return rebuild_apps(env, head, args);
+            let whnf_result: u64 = rebuild_apps(env, head, args);
+            if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
+                env.exprs.whnf_cache[orig_expr] = whnf_result;
+            }
+            return whnf_result;
         }
+    }
+    if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
+        env.exprs.whnf_cache[orig_expr] = cur;
     }
     return cur;
 }

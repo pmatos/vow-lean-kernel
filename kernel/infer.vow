@@ -273,10 +273,7 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
     return env.exprs.f2[w];
 }
 
-pub fn infer(env: Environment, expr: u64) -> u64 {
-    if expr >= env.exprs.tags.len() {
-        return err_val();
-    }
+fn infer_uncached(env: Environment, expr: u64) -> u64 {
     let t: u64 = env.exprs.tags[expr];
 
     if t == 10 {
@@ -320,6 +317,24 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
         return expr_add_const(env.exprs, str_name, Vec::new());
     }
     return err_val();
+}
+
+pub fn infer(env: Environment, expr: u64) -> u64 {
+    if expr >= env.exprs.tags.len() {
+        return err_val();
+    }
+    if expr < env.exprs.infer_cache.len() {
+        let cached: u64 = env.exprs.infer_cache[expr];
+        if cached != 4294967294 {
+            return cached;
+        }
+    }
+    let result: u64 = infer_uncached(env, expr);
+    while env.exprs.infer_cache.len() <= expr {
+        env.exprs.infer_cache.push(4294967294);
+    }
+    env.exprs.infer_cache[expr] = result;
+    return result;
 }
 
 fn check_def(env: Environment, ty: u64, val: u64) -> u64 {
