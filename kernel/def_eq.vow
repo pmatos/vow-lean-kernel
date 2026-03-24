@@ -290,9 +290,6 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 {
         return 1;
     }
-    if env.exprs.tags.len() > 8000000 {
-        return 0;
-    }
     let w1: u64 = whnf(env, e1);
     let w2: u64 = whnf(env, e2);
     if w1 == w2 {

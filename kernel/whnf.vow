@@ -151,9 +151,6 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     let mut cur: u64 = expr;
     while fuel > 0 {
         fuel = fuel - 1;
-        if env.exprs.tags.len() > 8000000 {
-            return cur;
-        }
         if cur >= env.exprs.tags.len() {
             if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
                 env.exprs.whnf_cache[orig_expr] = cur;
