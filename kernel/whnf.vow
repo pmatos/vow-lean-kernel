@@ -309,11 +309,10 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         }
 
         if reduced == 0 {
-            let whnf_result: u64 = rebuild_apps(env, head, args);
             if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
-                env.exprs.whnf_cache[orig_expr] = whnf_result;
+                env.exprs.whnf_cache[orig_expr] = cur;
             }
-            return whnf_result;
+            return cur;
         }
     }
     if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
