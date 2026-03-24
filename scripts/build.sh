@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VOWC="/home/pmatos/dev/vow-lang/vowc"
+VOWC="/home/pmatos/dev/vow-lang/build/vowc"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$PROJECT_ROOT"
