@@ -8,6 +8,62 @@ use kernel.subst
 use kernel.infer
 use kernel.def_eq
 
+fn nat_bitand(a: u64, b: u64) -> u64 {
+    let mut result: u64 = 0;
+    let mut va: u64 = a;
+    let mut vb: u64 = b;
+    let mut bit: u64 = 1;
+    while va > 0 && vb > 0 {
+        if va % 2 > 0 && vb % 2 > 0 { result = result + bit; }
+        va = va / 2;
+        vb = vb / 2;
+        bit = bit * 2;
+    }
+    return result;
+}
+
+fn nat_bitor(a: u64, b: u64) -> u64 {
+    let mut result: u64 = 0;
+    let mut va: u64 = a;
+    let mut vb: u64 = b;
+    let mut bit: u64 = 1;
+    while va > 0 || vb > 0 {
+        if va % 2 > 0 || vb % 2 > 0 { result = result + bit; }
+        va = va / 2;
+        vb = vb / 2;
+        bit = bit * 2;
+    }
+    return result;
+}
+
+fn nat_bitxor(a: u64, b: u64) -> u64 {
+    let mut result: u64 = 0;
+    let mut va: u64 = a;
+    let mut vb: u64 = b;
+    let mut bit: u64 = 1;
+    while va > 0 || vb > 0 {
+        if (va % 2) + (vb % 2) == 1 { result = result + bit; }
+        va = va / 2;
+        vb = vb / 2;
+        bit = bit * 2;
+    }
+    return result;
+}
+
+fn nat_shl(a: u64, b: u64) -> u64 {
+    let mut result: u64 = a;
+    let mut i: u64 = 0;
+    while i < b { result = result * 2; i = i + 1; }
+    return result;
+}
+
+fn nat_shr(a: u64, b: u64) -> u64 {
+    let mut result: u64 = a;
+    let mut i: u64 = 0;
+    while i < b { result = result / 2; i = i + 1; }
+    return result;
+}
+
 fn rebuild_apps(env: Environment, head: u64, args: Vec<u64>) -> u64 {
     let mut result: u64 = head;
     let mut i: u64 = args.len();
@@ -144,7 +200,18 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             let name_idx: u64 = env.exprs.f1[head];
             let levels: Vec<u64> = env.exprs.levels[head];
             let name_str: String = name_to_string(env.names, name_idx);
-            if args.len() >= 2 && name_str.len() >= 5 {
+            if args.len() >= 1 && name_str.len() >= 5 {
+                if name_str.byte_at(0) == 78 && name_str.byte_at(1) == 97 && name_str.byte_at(2) == 116 && name_str.byte_at(3) == 46 {
+                    if str_eq(name_str, String::from("Nat.succ")) > 0 {
+                        let sv: u64 = nat_value(env, args[args.len() - 1]);
+                        if sv != 4294967294 && sv < 4294967293 {
+                            cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, sv + 1), args, 1);
+                            reduced = 1;
+                        }
+                    }
+                }
+            }
+            if reduced == 0 && args.len() >= 2 && name_str.len() >= 5 {
                 let mut is_nat_op: u64 = 0;
                 if name_str.byte_at(0) == 78 && name_str.byte_at(1) == 97 && name_str.byte_at(2) == 116 && name_str.byte_at(3) == 46 {
                     if str_eq(name_str, String::from("Nat.add")) > 0 { is_nat_op = 1; }
@@ -154,6 +221,12 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     if str_eq(name_str, String::from("Nat.mod")) > 0 { is_nat_op = 5; }
                     if str_eq(name_str, String::from("Nat.ble")) > 0 { is_nat_op = 6; }
                     if str_eq(name_str, String::from("Nat.beq")) > 0 { is_nat_op = 7; }
+                    if str_eq(name_str, String::from("Nat.land")) > 0 { is_nat_op = 8; }
+                    if str_eq(name_str, String::from("Nat.lor")) > 0 { is_nat_op = 9; }
+                    if str_eq(name_str, String::from("Nat.xor")) > 0 { is_nat_op = 10; }
+                    if str_eq(name_str, String::from("Nat.shiftLeft")) > 0 { is_nat_op = 11; }
+                    if str_eq(name_str, String::from("Nat.shiftRight")) > 0 { is_nat_op = 12; }
+                    if str_eq(name_str, String::from("Nat.pow")) > 0 { is_nat_op = 13; }
                 }
                 if is_nat_op > 0 {
                     let va0: u64 = nat_value(env, args[args.len() - 1]);
@@ -164,13 +237,25 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         if is_nat_op == 3 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, va0 * va1), args, 2); reduced = 1; }
                         if is_nat_op == 4 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if va1 == 0 { 0 } else { va0 / va1 }), args, 2); reduced = 1; }
                         if is_nat_op == 5 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if va1 == 0 { va0 } else { va0 % va1 }), args, 2); reduced = 1; }
-                        if is_nat_op >= 6 {
+                        if is_nat_op == 6 || is_nat_op == 7 {
                             let bool_ns: u64 = name_arena_add(env.names, make_name_str(0, String::from("Bool")));
                             let mut bval: u64 = 0;
                             if is_nat_op == 6 { bval = if va0 <= va1 { 1 } else { 0 }; }
                             if is_nat_op == 7 { bval = if va0 == va1 { 1 } else { 0 }; }
                             let bname: u64 = if bval > 0 { name_arena_add(env.names, make_name_str(bool_ns, String::from("true"))) } else { name_arena_add(env.names, make_name_str(bool_ns, String::from("false"))) };
                             cur = rebuild_apps_skip(env, expr_add_const(env.exprs, bname, Vec::new()), args, 2);
+                            reduced = 1;
+                        }
+                        if is_nat_op == 8 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitand(va0, va1)), args, 2); reduced = 1; }
+                        if is_nat_op == 9 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitor(va0, va1)), args, 2); reduced = 1; }
+                        if is_nat_op == 10 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitxor(va0, va1)), args, 2); reduced = 1; }
+                        if is_nat_op == 11 && va1 < 64 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_shl(va0, va1)), args, 2); reduced = 1; }
+                        if is_nat_op == 12 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_shr(va0, va1)), args, 2); reduced = 1; }
+                        if is_nat_op == 13 && va1 <= 24 {
+                            let mut pv: u64 = 1;
+                            let mut pi: u64 = 0;
+                            while pi < va1 { pv = pv * va0; pi = pi + 1; }
+                            cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pv), args, 2);
                             reduced = 1;
                         }
                     }
