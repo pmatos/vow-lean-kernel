@@ -202,6 +202,96 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         return 1;
     }
 
+    let t1: u64 = env.exprs.tags[w1];
+    let t2: u64 = env.exprs.tags[w2];
+
+    let mut structural_done: u64 = 0;
+    if t1 == t2 {
+        if t1 == 1 {
+            if is_level_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]) > 0 { return 1; }
+            structural_done = 1;
+        }
+        if t1 == 2 {
+            let mut name_match: u64 = 0;
+            if env.exprs.f1[w1] == env.exprs.f1[w2] {
+                name_match = 1;
+            }
+            if name_match == 0 {
+                let n1s: String = name_to_string(env.names, env.exprs.f1[w1]);
+                let n2s: String = name_to_string(env.names, env.exprs.f1[w2]);
+                if str_eq(n1s, n2s) > 0 { name_match = 1; }
+            }
+            if name_match > 0 {
+                if is_levels_eq(env, env.exprs.levels[w1], env.exprs.levels[w2]) > 0 { return 1; }
+            }
+            structural_done = 1;
+        }
+        if t1 == 3 {
+            if is_def_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]) > 0 && is_def_eq(env, env.exprs.f2[w1], env.exprs.f2[w2]) > 0 {
+                return 1;
+            }
+            structural_done = 1;
+        }
+        if t1 == 4 || t1 == 5 {
+            let ty1: u64 = env.exprs.f2[w1];
+            let ty2: u64 = env.exprs.f2[w2];
+            let body1: u64 = env.exprs.f3[w1];
+            let body2: u64 = env.exprs.f3[w2];
+            if is_def_eq(env, ty1, ty2) > 0 {
+                let local_id: u64 = env.next_local_id;
+                env.next_local_id = env.next_local_id + 1;
+                let local_expr: u64 = expr_add_local(env.exprs, local_id, ty1);
+                let ob1: u64 = instantiate(env, body1, local_expr);
+                let ob2: u64 = instantiate(env, body2, local_expr);
+                if is_def_eq(env, ob1, ob2) > 0 { return 1; }
+            }
+            structural_done = 1;
+        }
+        if t1 == 0 {
+            if env.exprs.f1[w1] == env.exprs.f1[w2] { return 1; }
+            structural_done = 1;
+        }
+        if t1 == 10 {
+            if env.exprs.f1[w1] == env.exprs.f1[w2] { return 1; }
+            structural_done = 1;
+        }
+        if t1 == 8 {
+            if env.exprs.f1[w1] == env.exprs.f1[w2] && env.exprs.f2[w1] == env.exprs.f2[w2] {
+                if is_def_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]) > 0 { return 1; }
+            }
+            structural_done = 1;
+        }
+        if t1 == 7 {
+            let lk1: u64 = env.exprs.lit_kind[w1];
+            let lk2: u64 = env.exprs.lit_kind[w2];
+            if lk1 == lk2 && env.exprs.lit_val[w1].eq(env.exprs.lit_val[w2]) { return 1; }
+            structural_done = 1;
+        }
+    }
+
+    if t1 != t2 {
+        if t1 == 4 {
+            let lam_ty: u64 = env.exprs.f2[w1];
+            let lam_body: u64 = env.exprs.f3[w1];
+            let local_id: u64 = env.next_local_id;
+            env.next_local_id = env.next_local_id + 1;
+            let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
+            let ob1: u64 = instantiate(env, lam_body, local_expr);
+            let ob2: u64 = expr_add_app(env.exprs, w2, local_expr);
+            return is_def_eq(env, ob1, ob2);
+        }
+        if t2 == 4 {
+            let lam_ty: u64 = env.exprs.f2[w2];
+            let lam_body: u64 = env.exprs.f3[w2];
+            let local_id: u64 = env.next_local_id;
+            env.next_local_id = env.next_local_id + 1;
+            let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
+            let ob2: u64 = instantiate(env, lam_body, local_expr);
+            let ob1: u64 = expr_add_app(env.exprs, w1, local_expr);
+            return is_def_eq(env, ob1, ob2);
+        }
+    }
+
     let pi_ty: u64 = infer(env, w1);
     if is_err(pi_ty) == 0 {
         let pi_ty_w: u64 = whnf(env, pi_ty);
@@ -238,7 +328,6 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
                 if eta_cc == 1 && eta_ni == 0 {
                     let eta_cs: u64 = env.ind_ctor_start[eta_ind_idx];
                     let eta_nf: u64 = env.ind_ctor_num_fields[eta_cs];
-                    let eta_np: u64 = env.ind_ctor_num_params[eta_cs];
                     if eta_nf == 0 {
                         return 1;
                     }
@@ -261,95 +350,5 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         }
     }
 
-    let t1: u64 = env.exprs.tags[w1];
-    let t2: u64 = env.exprs.tags[w2];
-
-    if t1 != t2 {
-        if t1 == 4 {
-            let lam_ty: u64 = env.exprs.f2[w1];
-            let lam_body: u64 = env.exprs.f3[w1];
-            let local_id: u64 = env.next_local_id;
-            env.next_local_id = env.next_local_id + 1;
-            let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
-            let ob1: u64 = instantiate(env, lam_body, local_expr);
-            let ob2: u64 = expr_add_app(env.exprs, w2, local_expr);
-            return is_def_eq(env, ob1, ob2);
-        }
-        if t2 == 4 {
-            let lam_ty: u64 = env.exprs.f2[w2];
-            let lam_body: u64 = env.exprs.f3[w2];
-            let local_id: u64 = env.next_local_id;
-            env.next_local_id = env.next_local_id + 1;
-            let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
-            let ob2: u64 = instantiate(env, lam_body, local_expr);
-            let ob1: u64 = expr_add_app(env.exprs, w1, local_expr);
-            return is_def_eq(env, ob1, ob2);
-        }
-        return lazy_delta_step(env, w1, w2);
-    }
-
-    if t1 == 1 {
-        return is_level_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]);
-    }
-    if t1 == 2 {
-        if env.exprs.f1[w1] != env.exprs.f1[w2] {
-            let n1s: String = name_to_string(env.names, env.exprs.f1[w1]);
-            let n2s: String = name_to_string(env.names, env.exprs.f1[w2]);
-            if str_eq(n1s, n2s) == 0 {
-                return 0;
-            }
-        }
-        return is_levels_eq(env, env.exprs.levels[w1], env.exprs.levels[w2]);
-    }
-    if t1 == 3 {
-        if is_def_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]) > 0 && is_def_eq(env, env.exprs.f2[w1], env.exprs.f2[w2]) > 0 {
-            return 1;
-        }
-        return 0;
-    }
-    if t1 == 4 || t1 == 5 {
-        let ty1: u64 = env.exprs.f2[w1];
-        let ty2: u64 = env.exprs.f2[w2];
-        let body1: u64 = env.exprs.f3[w1];
-        let body2: u64 = env.exprs.f3[w2];
-        if is_def_eq(env, ty1, ty2) == 0 {
-            return 0;
-        }
-        let local_id: u64 = env.next_local_id;
-        env.next_local_id = env.next_local_id + 1;
-        let local_expr: u64 = expr_add_local(env.exprs, local_id, ty1);
-        let ob1: u64 = instantiate(env, body1, local_expr);
-        let ob2: u64 = instantiate(env, body2, local_expr);
-        return is_def_eq(env, ob1, ob2);
-    }
-    if t1 == 0 {
-        if env.exprs.f1[w1] == env.exprs.f1[w2] {
-            return 1;
-        }
-        return 0;
-    }
-    if t1 == 10 {
-        if env.exprs.f1[w1] == env.exprs.f1[w2] {
-            return 1;
-        }
-        return 0;
-    }
-    if t1 == 8 {
-        if env.exprs.f1[w1] == env.exprs.f1[w2] && env.exprs.f2[w1] == env.exprs.f2[w2] {
-            return is_def_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]);
-        }
-        return 0;
-    }
-    if t1 == 7 {
-        let lk1: u64 = env.exprs.lit_kind[w1];
-        let lk2: u64 = env.exprs.lit_kind[w2];
-        if lk1 != lk2 {
-            return 0;
-        }
-        if env.exprs.lit_val[w1].eq(env.exprs.lit_val[w2]) {
-            return 1;
-        }
-        return 0;
-    }
     return lazy_delta_step(env, w1, w2);
 }
