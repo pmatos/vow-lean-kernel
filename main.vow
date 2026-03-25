@@ -3,6 +3,8 @@ module Main
 use parse.strutil
 use parse.export
 use kernel.env
+use kernel.expr
+use kernel.level
 use kernel.infer
 
 fn main() -> i32 [io, read] {
@@ -56,10 +58,14 @@ fn main() -> i32 [io, read] {
         di_dup = di_dup + 1;
     }
 
+    let expr_watermark: u64 = env.exprs.tags.len();
+    let level_watermark: u64 = env.levels.tags.len();
+
     let mut declined: u64 = 0;
     let mut di: u64 = 0;
     while di < env.decl_kinds.len() {
         let r: u64 = check_decl_idx(env, di);
+        expr_arena_clear_caches(env.exprs);
         if r == 1 {
             return 1i32;
         } else if r == 2 {

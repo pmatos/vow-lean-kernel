@@ -101,6 +101,13 @@ pub fn level_add_imax(arena: LevelArena, lhs: u64, rhs: u64) -> u64 {
     return idx;
 }
 
+pub fn level_arena_truncate(arena: LevelArena, size: u64) {
+    while arena.entries.len() > size { arena.entries.pop(); }
+    while arena.tags.len() > size { arena.tags.pop(); }
+    while arena.f1.len() > size { arena.f1.pop(); }
+    while arena.f2.len() > size { arena.f2.pop(); }
+}
+
 pub fn level_add_param(arena: LevelArena, name: u64) -> u64 {
     let mut i: u64 = 0;
     while i < arena.tags.len() {
