@@ -100,10 +100,12 @@ fn find_or_push(arena: ExprArena, entry: ExprData, tag: u64, pf1: u64, pf2: u64,
     let mut i: u64 = 0;
     while i < bucket.len() {
         let idx: u64 = bucket[i];
-        if idx < arena.tags.len() && arena.tags[idx] == tag && arena.f1[idx] == pf1 && arena.f2[idx] == pf2 && arena.f3[idx] == pf3 && arena.f4[idx] == pf4 && arena.bi[idx] == pbi && arena.nondep[idx] == pnondep && arena.lit_kind[idx] == plit_kind {
-            if vecs_eq(arena.levels[idx], plevels) > 0 {
-                if tag != 7 || str_eq_expr(arena.lit_val[idx], plit_val) > 0 {
-                    return idx;
+        if idx < arena.tags.len() {
+            if arena.tags[idx] == tag && arena.f1[idx] == pf1 && arena.f2[idx] == pf2 && arena.f3[idx] == pf3 && arena.f4[idx] == pf4 && arena.bi[idx] == pbi && arena.nondep[idx] == pnondep && arena.lit_kind[idx] == plit_kind {
+                if vecs_eq(arena.levels[idx], plevels) > 0 {
+                    if tag != 7 || str_eq_expr(arena.lit_val[idx], plit_val) > 0 {
+                        return idx;
+                    }
                 }
             }
         }

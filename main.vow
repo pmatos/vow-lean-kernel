@@ -66,6 +66,7 @@ fn main() -> i32 [io, read] {
     while di < env.decl_kinds.len() {
         let r: u64 = check_decl_idx(env, di);
         expr_arena_clear_caches(env.exprs);
+        expr_arena_truncate(env.exprs, expr_watermark);
         if r == 1 {
             return 1i32;
         } else if r == 2 {
