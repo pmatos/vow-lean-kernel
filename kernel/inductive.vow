@@ -154,6 +154,147 @@ fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_param
     return check_result_type(env, cty, ind_name, ind_num_params, ind_num_indices, ind_level_params, param_locals);
 }
 
+fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
+                   type_start: u64, type_count: u64,
+                   ctor_start: u64, ctor_count: u64) -> u64 {
+    let num_params: u64 = env.rec_num_params[ridx];
+    let num_motives: u64 = env.rec_num_motives[ridx];
+    let num_minors: u64 = env.rec_num_minors[ridx];
+    let num_indices: u64 = env.rec_num_indices[ridx];
+    let rec_ty: u64 = env.rec_tys[ridx];
+    let rule_ctor: u64 = env.rec_rule_ctors[rridx];
+    let rule_nfields: u64 = env.rec_rule_nfields[rridx];
+    let rule_rhs: u64 = env.rec_rule_rhs[rridx];
+
+    // Step 1: Open recursor type binders (params + motives + minors)
+    let total_prefix: u64 = num_params + num_motives + num_minors;
+    let mut rec_cur: u64 = rec_ty;
+    let mut prefix_locals: Vec<u64> = Vec::new();
+    let mut bi: u64 = 0;
+    while bi < total_prefix {
+        rec_cur = whnf(env, rec_cur);
+        if rec_cur >= env.exprs.tags.len() || env.exprs.tags[rec_cur] != 5 { return 1; }
+        let domain: u64 = env.exprs.f2[rec_cur];
+        let local_id: u64 = env.next_local_id;
+        env.next_local_id = env.next_local_id + 1;
+        let local: u64 = expr_add_local(env.exprs, local_id, domain);
+        prefix_locals.push(local);
+        rec_cur = instantiate(env, env.exprs.f3[rec_cur], local);
+        bi = bi + 1;
+    }
+
+    // Step 2: Find constructor type
+    let mut ctor_ty: u64 = 0;
+    let mut ctor_nparams: u64 = 0;
+    let mut found_ctor: u64 = 0;
+    let mut cfi: u64 = 0;
+    while cfi < ctor_count {
+        let cf_cidx: u64 = ctor_start + cfi;
+        if env.ind_ctor_names[cf_cidx] == rule_ctor {
+            ctor_ty = env.ind_ctor_tys[cf_cidx];
+            ctor_nparams = env.ind_ctor_num_params[cf_cidx];
+            found_ctor = 1;
+        }
+        cfi = cfi + 1;
+    }
+    if found_ctor == 0 { return 0; }
+
+    // Step 3: Instantiate constructor params with param_locals
+    let mut ctor_cur: u64 = ctor_ty;
+    let mut pi: u64 = 0;
+    while pi < ctor_nparams {
+        ctor_cur = whnf(env, ctor_cur);
+        if ctor_cur >= env.exprs.tags.len() || env.exprs.tags[ctor_cur] != 5 { return 1; }
+        ctor_cur = instantiate(env, env.exprs.f3[ctor_cur], prefix_locals[pi]);
+        pi = pi + 1;
+    }
+
+    // Step 4: Open field binders, collect field locals
+    let mut field_locals: Vec<u64> = Vec::new();
+    let mut fi: u64 = 0;
+    while fi < rule_nfields {
+        ctor_cur = whnf(env, ctor_cur);
+        if ctor_cur >= env.exprs.tags.len() || env.exprs.tags[ctor_cur] != 5 { return 1; }
+        let field_domain: u64 = env.exprs.f2[ctor_cur];
+        let fid: u64 = env.next_local_id;
+        env.next_local_id = env.next_local_id + 1;
+        let field_local: u64 = expr_add_local(env.exprs, fid, field_domain);
+        field_locals.push(field_local);
+        ctor_cur = instantiate(env, env.exprs.f3[ctor_cur], field_local);
+        fi = fi + 1;
+    }
+
+    // Step 5: Build expected result type
+    // Extract indices from constructor result type (ctor_cur = T params i1'...in')
+    let ctor_result: u64 = whnf(env, ctor_cur);
+    let mut ctor_head: u64 = ctor_result;
+    let mut ctor_app_args: Vec<u64> = Vec::new();
+    while ctor_head < env.exprs.tags.len() && env.exprs.tags[ctor_head] == 3 {
+        ctor_app_args.push(env.exprs.f2[ctor_head]);
+        ctor_head = env.exprs.f1[ctor_head];
+    }
+    let ctor_total_args: u64 = ctor_app_args.len();
+
+    // Instantiate index binders in rec_cur
+    let mut idx_i: u64 = 0;
+    while idx_i < num_indices {
+        rec_cur = whnf(env, rec_cur);
+        if rec_cur >= env.exprs.tags.len() || env.exprs.tags[rec_cur] != 5 { return 1; }
+        let idx_pos: u64 = ctor_total_args - 1 - num_params - idx_i;
+        let idx_val: u64 = ctor_app_args[idx_pos];
+        rec_cur = instantiate(env, env.exprs.f3[rec_cur], idx_val);
+        idx_i = idx_i + 1;
+    }
+
+    // Build major = Const(ctor, ind_levels) applied to params and fields
+    // ind_type_lps stores NAME indices; convert to level arena indices
+    let ind_lp_names: Vec<u64> = env.ind_type_lps[type_start];
+    let mut ind_levels: Vec<u64> = Vec::new();
+    let mut li: u64 = 0;
+    while li < ind_lp_names.len() {
+        ind_levels.push(level_add_param(env.levels, ind_lp_names[li]));
+        li = li + 1;
+    }
+    let mut major: u64 = expr_add_const(env.exprs, rule_ctor, ind_levels);
+    let mut mi: u64 = 0;
+    while mi < num_params {
+        major = expr_add_app(env.exprs, major, prefix_locals[mi]);
+        mi = mi + 1;
+    }
+    let mut mf: u64 = 0;
+    while mf < rule_nfields {
+        major = expr_add_app(env.exprs, major, field_locals[mf]);
+        mf = mf + 1;
+    }
+
+    // Instantiate major binder
+    rec_cur = whnf(env, rec_cur);
+    if rec_cur >= env.exprs.tags.len() || env.exprs.tags[rec_cur] != 5 { return 1; }
+    let expected_type: u64 = instantiate(env, env.exprs.f3[rec_cur], major);
+
+    // Step 6: Apply RHS to all locals and infer
+    let mut applied: u64 = rule_rhs;
+    let mut ai: u64 = 0;
+    while ai < total_prefix {
+        applied = expr_add_app(env.exprs, applied, prefix_locals[ai]);
+        ai = ai + 1;
+    }
+    let mut af: u64 = 0;
+    while af < rule_nfields {
+        applied = expr_add_app(env.exprs, applied, field_locals[af]);
+        af = af + 1;
+    }
+
+    let actual_type: u64 = infer(env, applied);
+    if is_err(actual_type) > 0 { return 1; }
+
+    // Step 7: Check def eq
+    if is_def_eq(env, actual_type, expected_type) == 0 {
+        return 1;
+    }
+    return 0;
+}
+
 pub fn check_inductive(env: Environment, di: u64) -> u64 {
     let ind_idx: u64 = env.decl_vals[di];
 
@@ -187,6 +328,95 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
             }
             ci = ci + 1;
         }
+        // Validate recursors for this inductive type
+        let rec_start: u64 = env.ind_rec_start[ind_idx];
+        let rec_count: u64 = env.ind_rec_count[ind_idx];
+        let mut ri: u64 = 0;
+        while ri < rec_count {
+            let ridx: u64 = rec_start + ri;
+
+            // Check numParams matches inductive's numParams
+            if env.rec_num_params[ridx] != it_num_params {
+                return 1;
+            }
+
+            // Check K flag: for Prop inductives (Sort 0), k:true requires
+            // at most 1 constructor with all fields in Prop
+            if env.rec_k[ridx] > 0 && is_level_zero(env, ind_sort_level) > 0 {
+                // Count constructors for this type
+                let mut ctor_for_type: u64 = 0;
+                let mut cki: u64 = 0;
+                while cki < ctor_count {
+                    let ck_cidx: u64 = ctor_start + cki;
+                    if env.ind_ctor_inducts[ck_cidx] == it_name {
+                        ctor_for_type = ctor_for_type + 1;
+                    }
+                    cki = cki + 1;
+                }
+                if ctor_for_type > 1 {
+                    return 1;
+                }
+                // For the single constructor (if any), check all fields are in Prop
+                let mut ck2: u64 = 0;
+                while ck2 < ctor_count {
+                    let ck_cidx2: u64 = ctor_start + ck2;
+                    if env.ind_ctor_inducts[ck_cidx2] == it_name {
+                        let ck_ty: u64 = env.ind_ctor_tys[ck_cidx2];
+                        let ck_nparams: u64 = env.ind_ctor_num_params[ck_cidx2];
+                        let ck_nfields: u64 = env.ind_ctor_num_fields[ck_cidx2];
+                        let mut k_cur: u64 = ck_ty;
+                        let mut kp: u64 = 0;
+                        while kp < ck_nparams {
+                            if k_cur >= env.exprs.tags.len() || env.exprs.tags[k_cur] != 5 { return 1; }
+                            k_cur = env.exprs.f3[k_cur];
+                            kp = kp + 1;
+                        }
+                        let mut kf: u64 = 0;
+                        while kf < ck_nfields {
+                            if k_cur >= env.exprs.tags.len() || env.exprs.tags[k_cur] != 5 { return 1; }
+                            let k_field_ty: u64 = env.exprs.f2[k_cur];
+                            let k_field_sort: u64 = ensure_sort(env, infer(env, k_field_ty));
+                            if is_err(k_field_sort) > 0 { return 1; }
+                            if is_level_zero(env, k_field_sort) == 0 {
+                                return 1;
+                            }
+                            k_cur = env.exprs.f3[k_cur];
+                            kf = kf + 1;
+                        }
+                    }
+                    ck2 = ck2 + 1;
+                }
+            }
+
+            // Check recursor rule nfields match constructor numFields
+            let rr_start: u64 = env.rec_rule_start[ridx];
+            let rr_count: u64 = env.rec_rule_count[ridx];
+            let mut rri: u64 = 0;
+            while rri < rr_count {
+                let rridx: u64 = rr_start + rri;
+                let rule_ctor: u64 = env.rec_rule_ctors[rridx];
+                let rule_nfields: u64 = env.rec_rule_nfields[rridx];
+                // Find the constructor and check nfields
+                let mut cfi: u64 = 0;
+                while cfi < ctor_count {
+                    let cf_cidx: u64 = ctor_start + cfi;
+                    if env.ind_ctor_names[cf_cidx] == rule_ctor {
+                        if rule_nfields != env.ind_ctor_num_fields[cf_cidx] {
+                            return 1;
+                        }
+                    }
+                    cfi = cfi + 1;
+                }
+                // Check rule RHS type
+                if check_rec_rule(env, ridx, rridx, type_start, type_count, ctor_start, ctor_count) > 0 {
+                    return 1;
+                }
+                rri = rri + 1;
+            }
+
+            ri = ri + 1;
+        }
+
         ti = ti + 1;
     }
     return 0;

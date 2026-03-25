@@ -294,7 +294,7 @@ fn parse_axiom_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: AxiomDecl = AxiomDecl { name: name, level_params: level_params, ty: ty, is_unsafe: is_unsafe };
-    env_add_decl_full(env, name_str, 0, ty, 0, level_params, DeclEntry::Axiom { decl: decl });
+    env_add_decl_full(env, name_str, 0, ty, 0, level_params, DeclEntry::Axiom { decl: decl }, name);
     return true;
 }
 
@@ -320,7 +320,7 @@ fn parse_def_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: DefinitionDecl = DefinitionDecl { name: name, level_params: level_params, ty: ty, val: val, hints: hints, safety: safety, all: all };
-    env_add_decl_full_h(env, name_str, 1, ty, val, level_params, DeclEntry::Definition { decl: decl }, def_height);
+    env_add_decl_full_h(env, name_str, 1, ty, val, level_params, DeclEntry::Definition { decl: decl }, def_height, name);
     return true;
 }
 
@@ -334,7 +334,7 @@ fn parse_thm_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: TheoremDecl = TheoremDecl { name: name, level_params: level_params, ty: ty, val: val, all: all };
-    env_add_decl_full(env, name_str, 2, ty, val, level_params, DeclEntry::Theorem { decl: decl });
+    env_add_decl_full(env, name_str, 2, ty, val, level_params, DeclEntry::Theorem { decl: decl }, name);
     return true;
 }
 
@@ -349,7 +349,7 @@ fn parse_opaque_decl(env: Environment, line: String) -> bool {
 
     let name_str: String = name_to_string(env.names, name);
     let decl: OpaqueDecl = OpaqueDecl { name: name, level_params: level_params, ty: ty, val: val, is_unsafe: is_unsafe, all: all };
-    env_add_decl_full(env, name_str, 3, ty, val, level_params, DeclEntry::Opaque { decl: decl });
+    env_add_decl_full(env, name_str, 3, ty, val, level_params, DeclEntry::Opaque { decl: decl }, name);
     return true;
 }
 
@@ -367,7 +367,7 @@ fn parse_quot_decl(env: Environment, line: String) -> bool {
     if kind_str.val.len() == 3 { qk = 3; }
     let name_str: String = name_to_string(env.names, name);
     let decl: QuotDecl = QuotDecl { name: name, level_params: level_params, ty: ty, kind: kind };
-    env_add_decl_full(env, name_str, 4, ty, qk, level_params, DeclEntry::Quot { decl: decl });
+    env_add_decl_full(env, name_str, 4, ty, qk, level_params, DeclEntry::Quot { decl: decl }, name);
     return true;
 }
 
@@ -495,12 +495,13 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         env.ind_ctor_num_params.push(ctors[ci2].num_params);
         env.ind_ctor_num_fields.push(ctors[ci2].num_fields);
         let cn: String = name_to_string(env.names, ctors[ci2].name);
-        env_add_decl_simple(env, cn, 6, ctors[ci2].ty, 0, ctors[ci2].level_params);
+        env_add_decl_simple(env, cn, 6, ctors[ci2].ty, 0, ctors[ci2].level_params, ctors[ci2].name);
         ci2 = ci2 + 1;
     }
     let ctor_count: u64 = ctors.len();
 
     // Parse rules directly into env flat arrays from JSON (avoiding nested Vec access)
+    let rec_start: u64 = env.rec_names.len();
     let mut ri2: u64 = 0;
     while ri2 < rec_positions.len() {
         let rec_flat_idx: u64 = env.rec_names.len();
@@ -514,6 +515,8 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         } else {
             env.rec_k.push(0);
         }
+        env.rec_tys.push(recs[ri2].ty);
+        env.rec_lps.push(recs[ri2].level_params);
         let rule_start: u64 = env.rec_rule_ctors.len();
         let rules_arr_pos: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, rec_positions[ri2], String::from("rules"))));
         let rule_count: u64 = rules_arr_pos.len();
@@ -540,7 +543,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
             }
         }
         let rn: String = name_to_string(env.names, recs[ri2].name);
-        env_add_decl_simple(env, rn, 7, recs[ri2].ty, rec_flat_idx, recs[ri2].level_params);
+        env_add_decl_simple(env, rn, 7, recs[ri2].ty, rec_flat_idx, recs[ri2].level_params, recs[ri2].name);
         ri2 = ri2 + 1;
     }
 
@@ -549,6 +552,8 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     env.ind_type_count.push(type_count);
     env.ind_ctor_start.push(ctor_start);
     env.ind_ctor_count.push(ctor_count);
+    env.ind_rec_start.push(rec_start);
+    env.ind_rec_count.push(recs.len());
 
     let decl: InductiveDecl = InductiveDecl { types: types, ctors: ctors, recs: recs };
     env.ind_decls.push(decl);
@@ -557,12 +562,14 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     let mut name_str: String = String::from("[inductive]");
     let mut ind_ty: u64 = 0;
     let mut ind_lp: Vec<u64> = Vec::new();
+    let mut ind_name_id: u64 = 0;
     if types.len() > 0 {
         name_str = name_to_string(env.names, types[0].name);
         ind_ty = types[0].ty;
         ind_lp = types[0].level_params;
+        ind_name_id = types[0].name;
     }
-    env_add_decl_simple(env, name_str, 5, ind_ty, ind_idx, ind_lp);
+    env_add_decl_simple(env, name_str, 5, ind_ty, ind_idx, ind_lp, ind_name_id);
     return true;
 }
 

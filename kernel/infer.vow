@@ -336,7 +336,11 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     return result;
 }
 
-fn check_def(env: Environment, ty: u64, val: u64) -> u64 {
+fn check_def(env: Environment, di: u64, ty: u64, val: u64) -> u64 {
+    let def_name_id: u64 = env.decl_name_ids[di];
+    if expr_contains_const(env.exprs, val, def_name_id) > 0 {
+        return 1;
+    }
     let ty_sort: u64 = ensure_sort(env, infer(env, ty));
     if is_err(ty_sort) > 0 {
         return 1;
@@ -399,7 +403,7 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
         return check_axiom(env, ty);
     }
     if kind == 1 || kind == 3 {
-        return check_def(env, ty, val);
+        return check_def(env, di, ty, val);
     }
     if kind == 2 {
         return check_theorem(env, ty, val);

@@ -1,6 +1,6 @@
 # Arena Test Suite: Correctness & Performance
 
-**Status**: 135/141 tests pass. 6 failures: 5 correctness, 1 performance.
+**Status**: 140/141 tests pass. 1 failure: grind-ring-5 (performance/OOM).
 
 **Baseline performance**: init-prelude (3.6 MB, 30K lines) → 61s, 660 MB RAM.
 
@@ -18,11 +18,11 @@
 | level-imax-normalization | 8 KB | reject | PASS |
 | ctor-type-wrong-return | 4 KB | reject | PASS |
 | duplicate-level-params | 4 KB | reject | PASS |
-| **nat-rec-rules** | 12 KB | reject | **FAIL** (accepted) |
-| **self-referential-def** | 4 KB | reject | **FAIL** (accepted) |
-| **wrong-k-large-elim** | 4 KB | reject | **FAIL** (accepted) |
-| **wrong-recursor-nfields** | 4 KB | reject | **FAIL** (accepted) |
-| **wrong-recursor-numparams** | 4 KB | reject | **FAIL** (accepted) |
+| nat-rec-rules | 12 KB | reject | PASS |
+| self-referential-def | 4 KB | reject | PASS |
+| wrong-k-large-elim | 4 KB | reject | PASS |
+| wrong-recursor-nfields | 4 KB | reject | PASS |
+| wrong-recursor-numparams | 4 KB | reject | PASS |
 | **grind-ring-5** | 9.8 MB | accept | **FAIL** (OOM at 8 GB, timeout at 16 GB) |
 | init | 308 MB | accept | OOM at 4 GB, >13 GB at 5 min with 32 GB |
 | std | 523 MB | accept | not run (larger than init) |
@@ -31,9 +31,9 @@
 
 ---
 
-## Phase 1: Correctness — Recursor & Definition Validation
+## Phase 1: Correctness — Recursor & Definition Validation ✓ COMPLETE
 
-Five small reject tests we incorrectly accept. All are missing validation checks.
+All five reject tests now correctly rejected.
 
 ### Wave 1A: Self-referential definition detection
 
