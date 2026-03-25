@@ -8,6 +8,45 @@ use kernel.subst
 use kernel.whnf
 use kernel.infer
 
+pub fn level_to_string(env: Environment, level: u64) -> String {
+    let t: u64 = env.levels.tags[level];
+    if t == 0 { return String::from("0"); }
+    if t == 4 { return name_to_string(env.names, env.levels.f1[level]); }
+    if t == 1 {
+        let mut s: String = String::from("S(");
+        let inner: String = level_to_string(env, env.levels.f1[level]);
+        let mut i: u64 = 0;
+        while i < inner.len() { s.push_byte(inner.byte_at(i)); i = i + 1; }
+        s.push_byte(41);
+        return s;
+    }
+    if t == 2 {
+        let mut s: String = String::from("max(");
+        let l: String = level_to_string(env, env.levels.f1[level]);
+        let mut i: u64 = 0;
+        while i < l.len() { s.push_byte(l.byte_at(i)); i = i + 1; }
+        s.push_byte(44);
+        let r: String = level_to_string(env, env.levels.f2[level]);
+        i = 0;
+        while i < r.len() { s.push_byte(r.byte_at(i)); i = i + 1; }
+        s.push_byte(41);
+        return s;
+    }
+    if t == 3 {
+        let mut s: String = String::from("imax(");
+        let l: String = level_to_string(env, env.levels.f1[level]);
+        let mut i: u64 = 0;
+        while i < l.len() { s.push_byte(l.byte_at(i)); i = i + 1; }
+        s.push_byte(44);
+        let r: String = level_to_string(env, env.levels.f2[level]);
+        i = 0;
+        while i < r.len() { s.push_byte(r.byte_at(i)); i = i + 1; }
+        s.push_byte(41);
+        return s;
+    }
+    return String::from("?");
+}
+
 pub fn is_level_zero(env: Environment, level: u64) -> u64 {
     let t: u64 = env.levels.tags[level];
     if t == 0 {
@@ -183,6 +222,10 @@ fn is_level_leq_no_eq(env: Environment, a: u64, b: u64) -> u64 {
             return 1;
         }
     }
+    if env.levels.tags[nb] == 3 {
+        let imax_as_max: u64 = level_max(env, env.levels.f1[nb], env.levels.f2[nb]);
+        if is_level_leq_no_eq(env, na, imax_as_max) > 0 { return 1; }
+    }
     if env.levels.tags[na] == 3 {
         let imax_as_max: u64 = level_max(env, env.levels.f1[na], env.levels.f2[na]);
         return is_level_leq_no_eq(env, imax_as_max, nb);
@@ -210,6 +253,10 @@ pub fn is_level_leq(env: Environment, a: u64, b: u64) -> u64 {
         if is_level_leq(env, env.levels.f1[na], nb) > 0 && is_level_leq(env, env.levels.f2[na], nb) > 0 {
             return 1;
         }
+    }
+    if env.levels.tags[nb] == 3 {
+        let imax_as_max: u64 = level_max(env, env.levels.f1[nb], env.levels.f2[nb]);
+        if is_level_leq(env, na, imax_as_max) > 0 { return 1; }
     }
     if env.levels.tags[na] == 3 {
         let imax_as_max: u64 = level_max(env, env.levels.f1[na], env.levels.f2[na]);
