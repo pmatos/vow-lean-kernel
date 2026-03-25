@@ -98,6 +98,67 @@ pub fn whnf_abbrev(env: Environment, expr: u64) -> u64 {
     return whnf_core(env, expr, 1);
 }
 
+pub fn nat_str_ble(a: String, b: String) -> u64 {
+    if a.len() < b.len() { return 1; }
+    if a.len() > b.len() { return 0; }
+    let mut i: u64 = 0;
+    while i < a.len() {
+        if a.byte_at(i) < b.byte_at(i) { return 1; }
+        if a.byte_at(i) > b.byte_at(i) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+pub fn nat_str_mul(a: String, b: String) -> String {
+    let alen: u64 = a.len();
+    let blen: u64 = b.len();
+    if alen == 0 || blen == 0 { return String::from("0"); }
+    let rlen: u64 = alen + blen;
+    let mut digits: Vec<u64> = Vec::new();
+    let mut di: u64 = 0;
+    while di < rlen { digits.push(0); di = di + 1; }
+    let mut ai: u64 = 0;
+    while ai < alen {
+        let ad: u64 = a.byte_at(alen - 1 - ai) - 48;
+        let mut carry: u64 = 0;
+        let mut bi: u64 = 0;
+        while bi < blen {
+            let bd: u64 = b.byte_at(blen - 1 - bi) - 48;
+            let pos: u64 = ai + bi;
+            let prod: u64 = ad * bd + digits[pos] + carry;
+            digits[pos] = prod % 10;
+            carry = prod / 10;
+            bi = bi + 1;
+        }
+        if carry > 0 { digits[ai + blen] = digits[ai + blen] + carry; }
+        ai = ai + 1;
+    }
+    let mut result: String = String::new();
+    let mut started: u64 = 0;
+    let mut ri: u64 = rlen;
+    while ri > 0 {
+        ri = ri - 1;
+        let d: u64 = digits[ri];
+        if d > 0 || started > 0 {
+            result.push_byte(48 + d);
+            started = 1;
+        }
+    }
+    if started == 0 { result.push_byte(48); }
+    return result;
+}
+
+pub fn nat_str_beq(a: String, b: String) -> u64 {
+    if a.len() != b.len() { return 0; }
+    let mut i: u64 = 0;
+    while i < a.len() {
+        if a.byte_at(i) != b.byte_at(i) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
 pub fn nat_value(env: Environment, e: u64) -> u64 {
     let w: u64 = whnf(env, e);
     if w >= env.exprs.tags.len() { return 4294967294; }
@@ -248,12 +309,38 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         if is_nat_op == 10 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitxor(va0, va1)), args, 2); reduced = 1; }
                         if is_nat_op == 11 && va1 < 64 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_shl(va0, va1)), args, 2); reduced = 1; }
                         if is_nat_op == 12 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_shr(va0, va1)), args, 2); reduced = 1; }
-                        if is_nat_op == 13 && va1 <= 24 {
-                            let mut pv: u64 = 1;
-                            let mut pi: u64 = 0;
-                            while pi < va1 { pv = pv * va0; pi = pi + 1; }
-                            cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pv), args, 2);
-                            reduced = 1;
+                        if is_nat_op == 13 && va1 <= 256 {
+                            if va1 <= 24 {
+                                let mut pv: u64 = 1;
+                                let mut pi: u64 = 0;
+                                while pi < va1 { pv = pv * va0; pi = pi + 1; }
+                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pv), args, 2);
+                                reduced = 1;
+                            } else {
+                                let base_str: String = u64_to_string(va0);
+                                let mut result_str: String = String::from("1");
+                                let mut pi: u64 = 0;
+                                while pi < va1 { result_str = nat_str_mul(result_str, base_str); pi = pi + 1; }
+                                cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, result_str), args, 2);
+                                reduced = 1;
+                            }
+                        }
+                    }
+                    if reduced == 0 && (is_nat_op == 6 || is_nat_op == 7) {
+                        let w0: u64 = whnf(env, args[args.len() - 1]);
+                        let w1: u64 = whnf(env, args[args.len() - 2]);
+                        if w0 < env.exprs.tags.len() && w1 < env.exprs.tags.len() {
+                            if env.exprs.tags[w0] == 7 && env.exprs.lit_kind[w0] == 0 && env.exprs.tags[w1] == 7 && env.exprs.lit_kind[w1] == 0 {
+                                let s0: String = env.exprs.lit_val[w0];
+                                let s1: String = env.exprs.lit_val[w1];
+                                let bool_ns: u64 = name_arena_add(env.names, make_name_str(0, String::from("Bool")));
+                                let mut bval: u64 = 0;
+                                if is_nat_op == 6 { bval = nat_str_ble(s0, s1); }
+                                if is_nat_op == 7 { bval = nat_str_beq(s0, s1); }
+                                let bname: u64 = if bval > 0 { name_arena_add(env.names, make_name_str(bool_ns, String::from("true"))) } else { name_arena_add(env.names, make_name_str(bool_ns, String::from("false"))) };
+                                cur = rebuild_apps_skip(env, expr_add_const(env.exprs, bname, Vec::new()), args, 2);
+                                reduced = 1;
+                            }
                         }
                     }
                 }
