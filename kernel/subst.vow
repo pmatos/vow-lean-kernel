@@ -249,6 +249,11 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
     if amount == 0 {
         return expr;
     }
+    if expr < env.exprs.lbr.len() {
+        if env.exprs.lbr[expr] <= cutoff {
+            return expr;
+        }
+    }
     let t: u64 = env.exprs.tags[expr];
     if t == 0 {
         let idx: u64 = env.exprs.f1[expr];
@@ -330,6 +335,11 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
 }
 
 pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 {
+    if expr < env.exprs.lbr.len() {
+        if env.exprs.lbr[expr] <= depth {
+            return expr;
+        }
+    }
     let t: u64 = env.exprs.tags[expr];
     if t == 0 {
         let idx: u64 = env.exprs.f1[expr];
@@ -414,6 +424,100 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
 
 pub fn instantiate(env: Environment, body: u64, arg: u64) -> u64 {
     return instantiate_at(env, body, arg, 0);
+}
+
+fn instantiate_rev_at(env: Environment, expr: u64, args: Vec<u64>, offset: u64, num_args: u64, depth: u64) -> u64 {
+    if expr < env.exprs.lbr.len() {
+        if env.exprs.lbr[expr] <= depth {
+            return expr;
+        }
+    }
+    let t: u64 = env.exprs.tags[expr];
+    if t == 0 {
+        let idx: u64 = env.exprs.f1[expr];
+        if idx >= depth {
+            let adj: u64 = idx - depth;
+            if adj < num_args {
+                return lift(env, args[offset + adj], 0, depth);
+            }
+            return expr_add_bvar(env.exprs, idx - num_args);
+        }
+        return expr;
+    }
+    if t == 1 || t == 2 || t == 10 || t == 7 {
+        return expr;
+    }
+    if t == 3 {
+        let func: u64 = env.exprs.f1[expr];
+        let a: u64 = env.exprs.f2[expr];
+        let nf: u64 = instantiate_rev_at(env, func, args, offset, num_args, depth);
+        let na: u64 = instantiate_rev_at(env, a, args, offset, num_args, depth);
+        if nf == func && na == a {
+            return expr;
+        }
+        return expr_add_app(env.exprs, nf, na);
+    }
+    if t == 4 {
+        let nm: u64 = env.exprs.f1[expr];
+        let ty: u64 = env.exprs.f2[expr];
+        let bd: u64 = env.exprs.f3[expr];
+        let bi: u64 = env.exprs.bi[expr];
+        let nt: u64 = instantiate_rev_at(env, ty, args, offset, num_args, depth);
+        let nb: u64 = instantiate_rev_at(env, bd, args, offset, num_args, depth + 1);
+        if nt == ty && nb == bd {
+            return expr;
+        }
+        return expr_add_lambda(env.exprs, nm, nt, nb, bi);
+    }
+    if t == 5 {
+        let nm: u64 = env.exprs.f1[expr];
+        let ty: u64 = env.exprs.f2[expr];
+        let bd: u64 = env.exprs.f3[expr];
+        let bi: u64 = env.exprs.bi[expr];
+        let nt: u64 = instantiate_rev_at(env, ty, args, offset, num_args, depth);
+        let nb: u64 = instantiate_rev_at(env, bd, args, offset, num_args, depth + 1);
+        if nt == ty && nb == bd {
+            return expr;
+        }
+        return expr_add_forall(env.exprs, nm, nt, nb, bi);
+    }
+    if t == 6 {
+        let nm: u64 = env.exprs.f1[expr];
+        let ty: u64 = env.exprs.f2[expr];
+        let vl: u64 = env.exprs.f3[expr];
+        let bd: u64 = env.exprs.f4[expr];
+        let nd: u64 = env.exprs.nondep[expr];
+        let nt: u64 = instantiate_rev_at(env, ty, args, offset, num_args, depth);
+        let nv: u64 = instantiate_rev_at(env, vl, args, offset, num_args, depth);
+        let nb: u64 = instantiate_rev_at(env, bd, args, offset, num_args, depth + 1);
+        if nt == ty && nv == vl && nb == bd {
+            return expr;
+        }
+        return expr_add_let(env.exprs, nm, nt, nv, nb, nd);
+    }
+    if t == 8 {
+        let sn: u64 = env.exprs.f1[expr];
+        let ix: u64 = env.exprs.f2[expr];
+        let inner: u64 = env.exprs.f3[expr];
+        let ni: u64 = instantiate_rev_at(env, inner, args, offset, num_args, depth);
+        if ni == inner {
+            return expr;
+        }
+        return expr_add_proj(env.exprs, sn, ix, ni);
+    }
+    if t == 9 {
+        let inner: u64 = env.exprs.f1[expr];
+        let ni: u64 = instantiate_rev_at(env, inner, args, offset, num_args, depth);
+        if ni == inner {
+            return expr;
+        }
+        return expr_add_mdata(env.exprs, ni);
+    }
+    return expr;
+}
+
+pub fn instantiate_rev(env: Environment, body: u64, args: Vec<u64>, offset: u64, num_args: u64) -> u64 {
+    return instantiate_rev_at(env, body, args, offset, num_args, 0);
 }
 
 pub fn abstract_at(env: Environment, expr: u64, local_id: u64, depth: u64) -> u64 {
@@ -510,6 +614,9 @@ pub fn abstract_expr(env: Environment, expr: u64, local_id: u64) -> u64 {
 
 fn has_loose_bvar_at(env: Environment, expr: u64, depth: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
+        return 0;
+    }
+    if env.exprs.lbr[expr] <= depth {
         return 0;
     }
     let t: u64 = env.exprs.tags[expr];
