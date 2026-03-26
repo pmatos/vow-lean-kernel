@@ -370,13 +370,15 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 }
             }
             let lookup: DeclLookup = env_lookup(env, name_str);
-            if reduced == 0 && lookup.found > 0 && lookup.kind == 1 && do_delta > 0 {
-                let should_unfold: u64 = if do_delta > 1 { 1 } else { if lookup.height == 0 { 1 } else { 0 } };
+            if reduced == 0 && lookup.found > 0 && do_delta > 0 {
+              if lookup.kind == 1 || lookup.kind == 3 {
+                let should_unfold: u64 = if lookup.kind == 3 { 1 } else { if do_delta > 1 { 1 } else { if lookup.height == 0 { 1 } else { 0 } } };
                 if should_unfold > 0 {
                     let val: u64 = subst_level_params(env, lookup.val, lookup.level_params, levels);
                     cur = rebuild_apps(env, val, args);
                     reduced = 1;
                 }
+              }
             }
             if reduced == 0 && lookup.found > 0 && lookup.kind == 4 {
                 let qk: u64 = lookup.val;

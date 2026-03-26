@@ -132,39 +132,21 @@ fn main() -> i32 [io, read] {
         return 1i32;
     }
 
-    let mut di_dup: u64 = 0;
-    while di_dup < env.decl_names.len() {
-        let mut dj: u64 = di_dup + 1;
-        while dj < env.decl_names.len() {
-            let mut dup_match: u64 = 1;
-            let a_name: String = env.decl_names[di_dup];
-            let b_name: String = env.decl_names[dj];
-            if a_name.len() != b_name.len() {
-                dup_match = 0;
-            }
-            if dup_match > 0 {
-                let mut dk: u64 = 0;
-                while dk < a_name.len() {
-                    if a_name.byte_at(dk) != b_name.byte_at(dk) {
-                        dup_match = 0;
-                    }
-                    dk = dk + 1;
-                }
-            }
-            if dup_match > 0 {
-                return 1i32;
-            }
-            dj = dj + 1;
-        }
-        di_dup = di_dup + 1;
-    }
-
     let expr_watermark: u64 = env.exprs.tags.len();
     let level_watermark: u64 = env.levels.tags.len();
 
     let mut declined: u64 = 0;
     let mut di: u64 = 0;
     while di < env.decl_kinds.len() {
+        if di % 100 == 0 {
+            print_str(String::from("Checking decl "));
+            print_u64(di);
+            print_str(String::from("/"));
+            print_u64(env.decl_kinds.len());
+            print_str(String::from(" arena="));
+            print_u64(env.exprs.tags.len());
+            print_str(String::from("\n"));
+        }
         let r: u64 = check_decl_idx(env, di);
         if r == 1 {
             print_str(String::from("FAIL decl "));

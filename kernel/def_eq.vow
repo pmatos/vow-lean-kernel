@@ -276,7 +276,10 @@ fn unfold_def_head(env: Environment, e: u64) -> u64 {
     let name_str: String = name_to_string(env.names, env.exprs.f1[head]);
     let levels: Vec<u64> = env.exprs.levels[head];
     let lk: DeclLookup = env_lookup(env, name_str);
-    if lk.found == 0 || lk.kind != 1 { return e; }
+    if lk.found == 0 { return e; }
+    if lk.kind != 1 {
+        if lk.kind != 3 { return e; }
+    }
     let val: u64 = subst_level_params(env, lk.val, lk.level_params, levels);
     let mut result: u64 = val;
     let mut i: u64 = args.len();
@@ -285,6 +288,74 @@ fn unfold_def_head(env: Environment, e: u64) -> u64 {
         result = expr_add_app(env.exprs, result, args[i]);
     }
     return whnf_abbrev(env, result);
+}
+
+// Check if a Proj(S, i, e) is def_eq to an App with a recursor head
+// by verifying the recursor's minor premise selects the same field
+fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
+    let struct_name: u64 = env.exprs.f1[proj];
+    let proj_idx: u64 = env.exprs.f2[proj];
+    let proj_expr: u64 = env.exprs.f3[proj];
+    let mut rargs: Vec<u64> = Vec::new();
+    let mut rhead: u64 = app;
+    while rhead < env.exprs.tags.len() && env.exprs.tags[rhead] == 3 {
+        rargs.push(env.exprs.f2[rhead]);
+        rhead = env.exprs.f1[rhead];
+    }
+    if rhead >= env.exprs.tags.len() || env.exprs.tags[rhead] != 2 { return 0; }
+    let rec_name_str: String = name_to_string(env.names, env.exprs.f1[rhead]);
+    let rec_lk: DeclLookup = env_lookup(env, rec_name_str);
+    if rec_lk.found == 0 { return 0; }
+    if rec_lk.kind != 7 { return 0; }
+    let mut rec_idx: u64 = 0;
+    let mut found_rec: u64 = 0;
+    let mut ri: u64 = 0;
+    while ri < env.rec_names.len() {
+        let ri_name_str: String = name_to_string(env.names, env.rec_names[ri]);
+        if str_eq(ri_name_str, rec_name_str) > 0 {
+            rec_idx = ri;
+            found_rec = 1;
+            ri = env.rec_names.len();
+        }
+        ri = ri + 1;
+    }
+    if found_rec == 0 { return 0; }
+    let ind_idx: u64 = rec_lk.val;
+    let ts: u64 = env.ind_type_start[ind_idx];
+    let ind_name_id: u64 = env.ind_type_names[ts];
+    let ind_name_str: String = name_to_string(env.names, ind_name_id);
+    let struct_name_str: String = name_to_string(env.names, struct_name);
+    if str_eq(ind_name_str, struct_name_str) == 0 { return 0; }
+    // If we get here for Prod, track it
+    if str_eq(struct_name_str, String::from("Prod")) > 0 {
+        env.infer_err_code = 300;
+    }
+    if env.ind_ctor_count[ind_idx] != 1 { return 0; }
+    let np: u64 = env.rec_num_params[rec_idx];
+    let nm: u64 = env.rec_num_motives[rec_idx];
+    let nmi: u64 = env.rec_num_minors[rec_idx];
+    let ni: u64 = env.rec_num_indices[rec_idx];
+    let total_before_major: u64 = np + nm + nmi + ni;
+    if rargs.len() < total_before_major + 1 { return 0; }
+    let major: u64 = rargs[0];
+    let minor_pos: u64 = 1 + ni;
+    if minor_pos >= rargs.len() { return 0; }
+    let minor: u64 = rargs[minor_pos];
+    let cs: u64 = env.ind_ctor_start[ind_idx];
+    let nf: u64 = env.ind_ctor_num_fields[cs];
+    if proj_idx >= nf { return 0; }
+    let mut body: u64 = minor;
+    let mut lam_count: u64 = 0;
+    while lam_count < nf && body < env.exprs.tags.len() && env.exprs.tags[body] == 4 {
+        body = env.exprs.f3[body];
+        lam_count = lam_count + 1;
+    }
+    if lam_count != nf { return 0; }
+    if body >= env.exprs.tags.len() || env.exprs.tags[body] != 0 { return 0; }
+    let expected_bvar: u64 = nf - 1 - proj_idx;
+    if env.exprs.f1[body] != expected_bvar { return 0; }
+    // Minor is a simple field selector! Now check major == proj_expr
+    return is_def_eq(env, major, proj_expr);
 }
 
 fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
@@ -303,17 +374,21 @@ fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
     if h1 < env.exprs.tags.len() && env.exprs.tags[h1] == 2 {
         let n1s: String = name_to_string(env.names, env.exprs.f1[h1]);
         let lk1: DeclLookup = env_lookup(env, n1s);
-        if lk1.found > 0 && lk1.kind == 1 {
-            is_def1 = 1;
-            ht1 = lk1.height;
+        if lk1.found > 0 {
+            if lk1.kind == 1 || lk1.kind == 3 {
+                is_def1 = 1;
+                ht1 = lk1.height;
+            }
         }
     }
     if h2 < env.exprs.tags.len() && env.exprs.tags[h2] == 2 {
         let n2s: String = name_to_string(env.names, env.exprs.f1[h2]);
         let lk2: DeclLookup = env_lookup(env, n2s);
-        if lk2.found > 0 && lk2.kind == 1 {
-            is_def2 = 1;
-            ht2 = lk2.height;
+        if lk2.found > 0 {
+            if lk2.kind == 1 || lk2.kind == 3 {
+                is_def2 = 1;
+                ht2 = lk2.height;
+            }
         }
     }
     if is_def1 == 0 && is_def2 == 0 { return 0; }
@@ -325,7 +400,7 @@ fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
         let u2: u64 = unfold_def_head(env, w2);
         return is_def_eq(env, w1, u2);
     }
-    if ht1 >= ht2 {
+    if ht1 <= ht2 {
         let u1: u64 = unfold_def_head(env, w1);
         return is_def_eq(env, u1, w2);
     }
@@ -416,6 +491,18 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         if nv2 != 4294967294 {
             if nv1 == nv2 { return 1; }
             return 0;
+        }
+    }
+
+    // Proj-vs-recursor equivalence
+    if t1 == 8 {
+        if t2 == 3 {
+            if try_proj_rec_eq(env, w1, w2) > 0 { return 1; }
+        }
+    }
+    if t2 == 8 {
+        if t1 == 3 {
+            if try_proj_rec_eq(env, w2, w1) > 0 { return 1; }
         }
     }
 
