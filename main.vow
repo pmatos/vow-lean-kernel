@@ -6,6 +6,108 @@ use kernel.env
 use kernel.expr
 use kernel.level
 use kernel.infer
+use kernel.whnf
+use kernel.def_eq
+use kernel.subst
+
+fn debug_walk(env: Environment, expr: u64, depth: u64) [io] {
+    if expr >= env.exprs.tags.len() { return; }
+    let r: u64 = infer(env, expr);
+    if is_err(r) == 0 { return; }
+    if depth > 15 { return; }
+    let t: u64 = env.exprs.tags[expr];
+    let mut indent: u64 = 0;
+    while indent < depth { print_str(String::from("  ")); indent = indent + 1; }
+    print_str(String::from("FAIL e="));
+    print_u64(expr);
+    print_str(String::from(" t="));
+    print_u64(t);
+    print_str(String::from("\n"));
+    if t == 3 {
+        let func: u64 = env.exprs.f1[expr];
+        let arg: u64 = env.exprs.f2[expr];
+        let fr: u64 = infer(env, func);
+        let ar: u64 = infer(env, arg);
+        indent = 0;
+        while indent < depth + 1 { print_str(String::from("  ")); indent = indent + 1; }
+        print_str(String::from("fn="));
+        print_u64(func);
+        if is_err(fr) > 0 { print_str(String::from(" ERR")); }
+        else { print_str(String::from(" ok")); }
+        print_str(String::from(" | arg="));
+        print_u64(arg);
+        if is_err(ar) > 0 { print_str(String::from(" ERR")); }
+        else { print_str(String::from(" ok")); }
+        if is_err(fr) == 0 {
+            if is_err(ar) == 0 {
+                let w: u64 = whnf(env, fr);
+                if env.exprs.tags[w] == 5 {
+                    let dom: u64 = env.exprs.f2[w];
+                    let deq: u64 = is_def_eq(env, ar, dom);
+                    print_str(String::from(" deq="));
+                    print_u64(deq);
+                    if deq == 0 {
+                        print_str(String::from(" arg_ty="));
+                        print_u64(ar);
+                        print_str(String::from("(t="));
+                        print_u64(env.exprs.tags[ar]);
+                        print_str(String::from(") dom="));
+                        print_u64(dom);
+                        print_str(String::from("(t="));
+                        print_u64(env.exprs.tags[dom]);
+                        print_str(String::from(") whnf_ar="));
+                        let war: u64 = whnf(env, ar);
+                        print_u64(war);
+                        print_str(String::from("(t="));
+                        print_u64(env.exprs.tags[war]);
+                        print_str(String::from(") whnf_dom="));
+                        let wdom: u64 = whnf(env, dom);
+                        print_u64(wdom);
+                        print_str(String::from("(t="));
+                        print_u64(env.exprs.tags[wdom]);
+                        print_str(String::from(")"));
+                    }
+                } else {
+                    print_str(String::from(" NOT_FORALL("));
+                    print_u64(env.exprs.tags[w]);
+                    print_str(String::from(")"));
+                }
+            }
+        }
+        print_str(String::from("\n"));
+        if is_err(fr) > 0 { debug_walk(env, func, depth + 1); }
+        if is_err(ar) > 0 { debug_walk(env, arg, depth + 1); }
+    }
+    if t == 4 {
+        let lty: u64 = env.exprs.f2[expr];
+        let lbod: u64 = env.exprs.f3[expr];
+        let lbi: u64 = env.exprs.bi[expr];
+        let lty_r: u64 = infer(env, lty);
+        indent = 0;
+        while indent < depth + 1 { print_str(String::from("  ")); indent = indent + 1; }
+        print_str(String::from("lam ty="));
+        print_u64(lty);
+        if is_err(lty_r) > 0 {
+            print_str(String::from(" ERR\n"));
+            debug_walk(env, lty, depth + 1);
+        } else {
+            print_str(String::from(" ok, opening...\n"));
+            let loc: u64 = expr_add_local(env.exprs, env.next_local_id, lty);
+            env.next_local_id = env.next_local_id + 1;
+            let ob: u64 = instantiate(env, lbod, loc);
+            debug_walk(env, ob, depth + 1);
+        }
+    }
+    if t == 6 {
+        let lbod: u64 = env.exprs.f4[expr];
+        let lval: u64 = env.exprs.f3[expr];
+        let ob: u64 = instantiate(env, lbod, lval);
+        indent = 0;
+        while indent < depth + 1 { print_str(String::from("  ")); indent = indent + 1; }
+        print_str(String::from("let, opening body...\n"));
+        debug_walk(env, ob, depth + 1);
+    }
+}
 
 fn main() -> i32 [io, read] {
     let args: Vec<String> = args();
@@ -45,7 +147,6 @@ fn main() -> i32 [io, read] {
                 while dk < a_name.len() {
                     if a_name.byte_at(dk) != b_name.byte_at(dk) {
                         dup_match = 0;
-                        dk = a_name.len();
                     }
                     dk = dk + 1;
                 }
@@ -65,13 +166,20 @@ fn main() -> i32 [io, read] {
     let mut di: u64 = 0;
     while di < env.decl_kinds.len() {
         let r: u64 = check_decl_idx(env, di);
-        expr_arena_clear_caches(env.exprs);
-        expr_arena_truncate(env.exprs, expr_watermark);
         if r == 1 {
+            print_str(String::from("FAIL decl "));
+            print_u64(di);
+            print_str(String::from(" name="));
+            print_str(env.decl_names[di]);
+            print_str(String::from(" kind="));
+            print_u64(env.decl_kinds[di]);
+            print_str(String::from("\n"));
             return 1i32;
         } else if r == 2 {
             declined = 1;
         }
+        expr_arena_clear_caches(env.exprs);
+        expr_arena_truncate(env.exprs, expr_watermark);
         di = di + 1;
     }
 

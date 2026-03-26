@@ -144,17 +144,6 @@ fn infer_forall(env: Environment, name: u64, ty: u64, body: u64, bi: u64) -> u64
 }
 
 fn infer_let(env: Environment, ty: u64, val: u64, body: u64) -> u64 {
-    let ty_sort: u64 = ensure_sort(env, infer(env, ty));
-    if is_err(ty_sort) > 0 {
-        return err_val();
-    }
-    let val_ty: u64 = infer(env, val);
-    if is_err(val_ty) > 0 {
-        return err_val();
-    }
-    if is_def_eq(env, val_ty, ty) == 0 {
-        return err_val();
-    }
     let opened_body: u64 = instantiate(env, body, val);
     return infer(env, opened_body);
 }
