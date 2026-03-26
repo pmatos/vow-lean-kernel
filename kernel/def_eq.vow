@@ -328,7 +328,19 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
     if ind_lk_pr.kind != 5 { return 0; }
     let ind_idx: u64 = ind_lk_pr.val;
     let struct_name_str: String = name_to_string(env.names, struct_name);
-    if str_eq(ind_str_pr, struct_name_str) == 0 { return 0; }
+    // Allow cross-type Proj-rec equivalence (e.g., PProd Proj vs Prod.rec)
+    // when both are single-constructor structs with matching field counts
+    if str_eq(ind_str_pr, struct_name_str) == 0 {
+        let proj_lk: DeclLookup = env_lookup(env, struct_name_str);
+        if proj_lk.found == 0 || proj_lk.kind != 5 { return 0; }
+        let proj_ind_idx: u64 = proj_lk.val;
+        if env.ind_ctor_count[proj_ind_idx] != 1 { return 0; }
+        let proj_cs: u64 = env.ind_ctor_start[proj_ind_idx];
+        let proj_nf: u64 = env.ind_ctor_num_fields[proj_cs];
+        let rec_cs_chk: u64 = env.ind_ctor_start[ind_idx];
+        let rec_nf_chk: u64 = env.ind_ctor_num_fields[rec_cs_chk];
+        if proj_nf != rec_nf_chk { return 0; }
+    }
     if env.ind_ctor_count[ind_idx] != 1 { return 0; }
     let np: u64 = env.rec_num_params[rec_idx];
     let nm: u64 = env.rec_num_motives[rec_idx];
@@ -343,18 +355,37 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
     let cs: u64 = env.ind_ctor_start[ind_idx];
     let nf: u64 = env.ind_ctor_num_fields[cs];
     if proj_idx >= nf { return 0; }
-    let mut body: u64 = minor;
+    // Fast path: check if minor is a simple field selector
+    let minor_w: u64 = whnf(env, minor);
+    let mut body: u64 = minor_w;
     let mut lam_count: u64 = 0;
     while lam_count < nf && body < env.exprs.tags.len() && env.exprs.tags[body] == 4 {
         body = env.exprs.f3[body];
         lam_count = lam_count + 1;
     }
-    if lam_count != nf { return 0; }
-    if body >= env.exprs.tags.len() || env.exprs.tags[body] != 0 { return 0; }
-    let expected_bvar: u64 = nf - 1 - proj_idx;
-    if env.exprs.f1[body] != expected_bvar { return 0; }
-    // Minor is a simple field selector! Now check major == proj_expr
-    return is_def_eq(env, major, proj_expr);
+    if lam_count == nf && body < env.exprs.tags.len() && env.exprs.tags[body] == 0 {
+        let expected_bvar: u64 = nf - 1 - proj_idx;
+        if env.exprs.f1[body] == expected_bvar {
+            return is_def_eq(env, major, proj_expr);
+        }
+    }
+    // General case: apply minor to Proj fields of major, check result =?= Proj
+    if is_def_eq(env, major, proj_expr) > 0 {
+        let mut applied: u64 = minor_w;
+        let mut fi: u64 = 0;
+        while fi < nf {
+            let field_proj: u64 = expr_add_proj(env.exprs, struct_name, fi, major);
+            applied = expr_add_app(env.exprs, applied, field_proj);
+            fi = fi + 1;
+        }
+        let applied_w: u64 = whnf(env, applied);
+        let proj_node: u64 = expr_add_proj(env.exprs, struct_name, proj_idx, proj_expr);
+        let proj_w: u64 = whnf(env, proj_node);
+        if is_def_eq(env, applied_w, proj_w) > 0 {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
@@ -399,12 +430,19 @@ fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
         let u2: u64 = unfold_def_head(env, w2);
         return is_def_eq(env, w1, u2);
     }
-    if ht1 <= ht2 {
+    // Unfold the higher definition first (Lean 4 convention)
+    if ht1 > ht2 {
         let u1: u64 = unfold_def_head(env, w1);
         return is_def_eq(env, u1, w2);
     }
+    if ht2 > ht1 {
+        let u2: u64 = unfold_def_head(env, w2);
+        return is_def_eq(env, w1, u2);
+    }
+    // Equal heights: unfold both
+    let u1: u64 = unfold_def_head(env, w1);
     let u2: u64 = unfold_def_head(env, w2);
-    return is_def_eq(env, w1, u2);
+    return is_def_eq(env, u1, u2);
 }
 
 pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
