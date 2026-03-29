@@ -290,6 +290,67 @@ fn unfold_def_head(env: Environment, e: u64) -> u64 {
     return whnf_abbrev(env, result);
 }
 
+// Structural equality after WHNF — no extension rules, cannot cycle.
+// Uses proj_name_canon for cross-type Proj comparison (PProd/Prod etc.)
+fn whnf_structural_eq(env: Environment, e1: u64, e2: u64) -> u64 {
+    let w1: u64 = whnf(env, e1);
+    let w2: u64 = whnf(env, e2);
+    if w1 == w2 { return 1; }
+    if w1 >= env.exprs.tags.len() || w2 >= env.exprs.tags.len() { return 0; }
+    let t1: u64 = env.exprs.tags[w1];
+    let t2: u64 = env.exprs.tags[w2];
+    if t1 != t2 { return 0; }
+    if t1 == 0 || t1 == 10 { if env.exprs.f1[w1] == env.exprs.f1[w2] { return 1; } return 0; }
+    if t1 == 1 { return is_level_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]); }
+    if t1 == 2 {
+        let mut nm: u64 = 0;
+        if env.exprs.f1[w1] == env.exprs.f1[w2] { nm = 1; }
+        if nm == 0 {
+            let s1: String = name_to_string(env.names, env.exprs.f1[w1]);
+            let s2: String = name_to_string(env.names, env.exprs.f1[w2]);
+            if str_eq(s1, s2) > 0 { nm = 1; }
+        }
+        if nm > 0 { return is_levels_eq(env, env.exprs.levels[w1], env.exprs.levels[w2]); }
+        return 0;
+    }
+    if t1 == 3 {
+        if whnf_structural_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]) > 0 {
+            return whnf_structural_eq(env, env.exprs.f2[w1], env.exprs.f2[w2]);
+        }
+        return 0;
+    }
+    if t1 == 4 || t1 == 5 {
+        if whnf_structural_eq(env, env.exprs.f2[w1], env.exprs.f2[w2]) > 0 {
+            return whnf_structural_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]);
+        }
+        return 0;
+    }
+    if t1 == 8 {
+        if env.exprs.f2[w1] == env.exprs.f2[w2] {
+            let mut pok: u64 = 0;
+            if env.exprs.f1[w1] == env.exprs.f1[w2] { pok = 1; }
+            if pok == 0 {
+                let c1: u64 = env.exprs.f1[w1];
+                let c2: u64 = env.exprs.f1[w2];
+                if c1 < env.proj_name_canon.len() && c2 < env.proj_name_canon.len() {
+                    if env.proj_name_canon[c1] == env.proj_name_canon[c2] { pok = 1; }
+                }
+            }
+            if pok > 0 {
+                return whnf_structural_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]);
+            }
+        }
+        return 0;
+    }
+    if t1 == 7 {
+        if env.exprs.lit_kind[w1] == env.exprs.lit_kind[w2] {
+            if str_eq(env.exprs.lit_val[w1], env.exprs.lit_val[w2]) > 0 { return 1; }
+        }
+        return 0;
+    }
+    return 0;
+}
+
 // Check if a Proj(S, i, e) is def_eq to an App with a recursor head
 // by verifying the recursor's minor premise selects the same field
 fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
@@ -454,7 +515,27 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if w1 == w2 {
         return 1;
     }
+    // Cycle detection: if this WHNF pair is already being compared, assume equal
+    let lo: u64 = if w1 < w2 { w1 } else { w2 };
+    let hi: u64 = if w1 < w2 { w2 } else { w1 };
+    let mut ci: u64 = 0;
+    while ci < env.def_eq_lhs.len() {
+        if env.def_eq_lhs[ci] == lo {
+            if env.def_eq_rhs[ci] == hi {
+                return 1;
+            }
+        }
+        ci = ci + 1;
+    }
+    env.def_eq_lhs.push(lo);
+    env.def_eq_rhs.push(hi);
+    let result: u64 = is_def_eq_core(env, w1, w2);
+    env.def_eq_lhs.pop();
+    env.def_eq_rhs.pop();
+    return result;
+}
 
+fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
     let t1: u64 = env.exprs.tags[w1];
     let t2: u64 = env.exprs.tags[w2];
 
@@ -513,8 +594,22 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
             structural_done = 1;
         }
         if t1 == 8 {
-            if env.exprs.f1[w1] == env.exprs.f1[w2] && env.exprs.f2[w1] == env.exprs.f2[w2] {
-                if is_def_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]) > 0 { return 1; }
+            if env.exprs.f2[w1] == env.exprs.f2[w2] {
+                let mut proj_ok: u64 = 0;
+                if env.exprs.f1[w1] == env.exprs.f1[w2] { proj_ok = 1; }
+                // Cross-type Proj: allow PProd vs Prod etc. via canon map
+                if proj_ok == 0 {
+                    let cn1: u64 = env.exprs.f1[w1];
+                    let cn2: u64 = env.exprs.f1[w2];
+                    if cn1 < env.proj_name_canon.len() && cn2 < env.proj_name_canon.len() {
+                        if env.proj_name_canon[cn1] == env.proj_name_canon[cn2] {
+                            proj_ok = 1;
+                        }
+                    }
+                }
+                if proj_ok > 0 {
+                    if is_def_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]) > 0 { return 1; }
+                }
             }
             structural_done = 1;
         }

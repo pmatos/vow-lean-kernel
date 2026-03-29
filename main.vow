@@ -2,6 +2,7 @@ module Main
 
 use parse.strutil
 use parse.export
+use kernel.name
 use kernel.env
 use kernel.expr
 use kernel.level
@@ -132,6 +133,54 @@ fn main() -> i32 [io, read] {
         return 1i32;
     }
 
+    // Normalize Proj typeNames for known lean4export cross-type pairs.
+    // lean4export uses PProd for Prod projections, PSigma for Sigma, etc.
+    // Map: PProd → Prod, PSigma → Sigma (by looking up both names)
+    let mut pni: u64 = 0;
+    while pni < env.names.entries.len() {
+        env.proj_name_canon.push(pni);
+        pni = pni + 1;
+    }
+    // Find and register known pairs
+    let pprod_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("PProd")));
+    let prod_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("Prod")));
+    let psigma_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("PSigma")));
+    let sigma_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("Sigma")));
+    // Map PProd → Prod if both exist as inductives
+    let pprod_lk: DeclLookup = env_lookup(env, String::from("PProd"));
+    let prod_lk: DeclLookup = env_lookup(env, String::from("Prod"));
+    if pprod_lk.found > 0 && prod_lk.found > 0 {
+        if pprod_lk.kind == 5 && prod_lk.kind == 5 {
+            if pprod_name < env.proj_name_canon.len() {
+                env.proj_name_canon[pprod_name] = prod_name;
+            }
+        }
+    }
+    // Map PSigma → Sigma if both exist
+    let psigma_lk: DeclLookup = env_lookup(env, String::from("PSigma"));
+    let sigma_lk: DeclLookup = env_lookup(env, String::from("Sigma"));
+    if psigma_lk.found > 0 && sigma_lk.found > 0 {
+        if psigma_lk.kind == 5 && sigma_lk.kind == 5 {
+            if psigma_name < env.proj_name_canon.len() {
+                env.proj_name_canon[psigma_name] = sigma_name;
+            }
+        }
+    }
+    // Rewrite Proj f1 fields using the targeted map
+    let mut pei: u64 = 0;
+    while pei < env.exprs.tags.len() {
+        if env.exprs.tags[pei] == 8 {
+            let old_name: u64 = env.exprs.f1[pei];
+            if old_name < env.proj_name_canon.len() {
+                let new_name: u64 = env.proj_name_canon[old_name];
+                if new_name != old_name {
+                    env.exprs.f1[pei] = new_name;
+                }
+            }
+        }
+        pei = pei + 1;
+    }
+
     let expr_watermark: u64 = env.exprs.tags.len();
     let level_watermark: u64 = env.levels.tags.len();
 
@@ -162,6 +211,8 @@ fn main() -> i32 [io, read] {
         }
         expr_arena_clear_caches(env.exprs);
         expr_arena_truncate(env.exprs, expr_watermark);
+        while env.def_eq_lhs.len() > 0 { env.def_eq_lhs.pop(); }
+        while env.def_eq_rhs.len() > 0 { env.def_eq_rhs.pop(); }
         di = di + 1;
     }
 

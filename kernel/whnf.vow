@@ -550,9 +550,61 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             }
                         }
                     }
-                    // Note: do NOT convert stuck rec to Proj in WHNF — it makes normalization
-                    // non-deterministic (one side converts, the other doesn't) breaking App congruence.
-                    // Native Proj-vs-rec is handled by try_proj_rec_eq in is_def_eq.
+                    // Convert stuck rec on single-constructor struct with simple field-selector minor → Proj
+                    // Uses proj_name_canon to match lean4export's naming (e.g., PProd for Prod)
+                    if iota_done == 0 && reduced == 0 {
+                        let rec_nd_p: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
+                        let ind_name_p: u64 = rec_nd_p.parent;
+                        let ind_str_p: String = name_to_string(env.names, ind_name_p);
+                        let ind_lk_p: DeclLookup = env_lookup(env, ind_str_p);
+                        if ind_lk_p.found > 0 {
+                          if ind_lk_p.kind == 5 {
+                            let p_ind_idx: u64 = ind_lk_p.val;
+                            if env.ind_ctor_count[p_ind_idx] == 1 {
+                              if ni == 0 {
+                                if nmi == 1 {
+                                  let cs_p: u64 = env.ind_ctor_start[p_ind_idx];
+                                  let nf_p: u64 = env.ind_ctor_num_fields[cs_p];
+                                  if nf_p > 0 {
+                                    let minor_rev_p: u64 = args.len() - 1 - np - nm;
+                                    let minor_w_p: u64 = whnf_core(env, args[minor_rev_p], 2);
+                                    let mut body_p: u64 = minor_w_p;
+                                    let mut lc_p: u64 = 0;
+                                    let mut lok_p: u64 = 1;
+                                    while lc_p < nf_p {
+                                        if body_p < env.exprs.tags.len() {
+                                            if env.exprs.tags[body_p] == 4 {
+                                                body_p = env.exprs.f3[body_p];
+                                                lc_p = lc_p + 1;
+                                            } else { lok_p = 0; lc_p = nf_p; }
+                                        } else { lok_p = 0; lc_p = nf_p; }
+                                    }
+                                    if lok_p > 0 {
+                                      let body_w_p: u64 = whnf_core(env, body_p, 0);
+                                      if body_w_p < env.exprs.tags.len() {
+                                        if env.exprs.tags[body_w_p] == 0 {
+                                          let bv_p: u64 = env.exprs.f1[body_w_p];
+                                          if bv_p < nf_p {
+                                            let fi_p: u64 = nf_p - 1 - bv_p;
+                                            // Use canonical Proj name to match lean4export
+                                            let mut canon_name: u64 = ind_name_p;
+                                            if ind_name_p < env.proj_name_canon.len() {
+                                                canon_name = env.proj_name_canon[ind_name_p];
+                                            }
+                                            let proj_p: u64 = expr_add_proj(env.exprs, canon_name, fi_p, major);
+                                            cur = rebuild_apps_skip(env, proj_p, args, major_idx + 1);
+                                            reduced = 1;
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                    }
                 }
             }
         } else if ht == 8 {
