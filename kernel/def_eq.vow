@@ -427,11 +427,11 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
     if lam_count == nf && body < env.exprs.tags.len() && env.exprs.tags[body] == 0 {
         let expected_bvar: u64 = nf - 1 - proj_idx;
         if env.exprs.f1[body] == expected_bvar {
-            return is_def_eq(env, major, proj_expr);
+            return is_def_eq_full(env, major, proj_expr);
         }
     }
     // General case: apply minor to Proj fields of major, check result =?= Proj
-    if is_def_eq(env, major, proj_expr) > 0 {
+    if is_def_eq_full(env, major, proj_expr) > 0 {
         let mut applied: u64 = minor_w;
         let mut fi: u64 = 0;
         while fi < nf {
@@ -442,7 +442,7 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
         let applied_w: u64 = whnf(env, applied);
         let proj_node: u64 = expr_add_proj(env.exprs, struct_name, proj_idx, proj_expr);
         let proj_w: u64 = whnf(env, proj_node);
-        if is_def_eq(env, applied_w, proj_w) > 0 {
+        if is_def_eq_full(env, applied_w, proj_w) > 0 {
             return 1;
         }
     }
@@ -506,33 +506,131 @@ fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
     return is_def_eq(env, u1, u2);
 }
 
-pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
-    if e1 == e2 {
-        return 1;
-    }
+// Full-WHNF def_eq for non-App structural checks (Lambda bodies, extensions)
+fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
+    if e1 == e2 { return 1; }
     let w1: u64 = whnf(env, e1);
     let w2: u64 = whnf(env, e2);
-    if w1 == w2 {
-        return 1;
+    if w1 == w2 { return 1; }
+    // Depth limit to prevent stack overflow (same as committed cycle detection)
+    env.def_eq_depth = env.def_eq_depth + 1;
+    if env.def_eq_depth > 5000 {
+        env.def_eq_depth = env.def_eq_depth - 1;
+        return 0;
     }
-    // Cycle detection: if this WHNF pair is already being compared, assume equal
-    let lo: u64 = if w1 < w2 { w1 } else { w2 };
-    let hi: u64 = if w1 < w2 { w2 } else { w1 };
-    let mut ci: u64 = 0;
-    while ci < env.def_eq_lhs.len() {
-        if env.def_eq_lhs[ci] == lo {
-            if env.def_eq_rhs[ci] == hi {
-                return 1;
+    let result: u64 = is_def_eq_core(env, w1, w2);
+    env.def_eq_depth = env.def_eq_depth - 1;
+    return result;
+}
+
+// Compare a single pair: cheap WHNF → lazy delta → return result or push App pairs
+// Returns: 1 = equal, 0 = not equal, 2 = pushed App sub-pairs onto stack (continue)
+fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r: Vec<u64>) -> u64 {
+    if e1 == e2 { return 1; }
+    // Iterative lazy delta loop for this pair
+    let mut cur1: u64 = e1;
+    let mut cur2: u64 = e2;
+    let mut delta_fuel: u64 = 10000;
+    while delta_fuel > 0 {
+        delta_fuel = delta_fuel - 1;
+        let w1: u64 = whnf_core(env, cur1, 0);
+        let w2: u64 = whnf_core(env, cur2, 0);
+        if w1 == w2 { return 1; }
+        // Congruence shortcut: same Const head → push args onto stack
+        let mut ch1: u64 = w1;
+        let mut ch2: u64 = w2;
+        let mut a1: Vec<u64> = Vec::new();
+        let mut a2: Vec<u64> = Vec::new();
+        while ch1 < env.exprs.tags.len() && env.exprs.tags[ch1] == 3 {
+            a1.push(env.exprs.f2[ch1]); ch1 = env.exprs.f1[ch1];
+        }
+        while ch2 < env.exprs.tags.len() && env.exprs.tags[ch2] == 3 {
+            a2.push(env.exprs.f2[ch2]); ch2 = env.exprs.f1[ch2];
+        }
+        if ch1 < env.exprs.tags.len() && ch2 < env.exprs.tags.len() {
+            if env.exprs.tags[ch1] == 2 && env.exprs.tags[ch2] == 2 {
+                if env.exprs.f1[ch1] == env.exprs.f1[ch2] {
+                    if a1.len() == a2.len() {
+                        if is_levels_eq(env, env.exprs.levels[ch1], env.exprs.levels[ch2]) > 0 {
+                            // Speculative congruence: try comparing args directly
+                            // If any fails, fall through to lazy delta (don't commit)
+                            let mut all_ok: u64 = 1;
+                            let mut ai: u64 = 0;
+                            while ai < a1.len() {
+                                if is_def_eq(env, a1[ai], a2[ai]) == 0 {
+                                    all_ok = 0;
+                                    ai = a1.len();
+                                }
+                                ai = ai + 1;
+                            }
+                            if all_ok > 0 { return 1; }
+                            // Congruence failed — fall through to lazy delta
+                        }
+                    }
+                }
             }
         }
-        ci = ci + 1;
+        // Lazy delta: find def heads
+        let mut h1: u64 = w1;
+        let mut h2: u64 = w2;
+        while h1 < env.exprs.tags.len() && env.exprs.tags[h1] == 3 { h1 = env.exprs.f1[h1]; }
+        while h2 < env.exprs.tags.len() && env.exprs.tags[h2] == 3 { h2 = env.exprs.f1[h2]; }
+        let mut d1: u64 = 0;
+        let mut d2: u64 = 0;
+        let mut ht1: u64 = 0;
+        let mut ht2: u64 = 0;
+        if h1 < env.exprs.tags.len() && env.exprs.tags[h1] == 2 {
+            let n1s: String = name_to_string(env.names, env.exprs.f1[h1]);
+            let lk1: DeclLookup = env_lookup(env, n1s);
+            if lk1.found > 0 {
+                if lk1.kind == 1 || lk1.kind == 3 { d1 = 1; ht1 = lk1.height; }
+            }
+        }
+        if h2 < env.exprs.tags.len() && env.exprs.tags[h2] == 2 {
+            let n2s: String = name_to_string(env.names, env.exprs.f1[h2]);
+            let lk2: DeclLookup = env_lookup(env, n2s);
+            if lk2.found > 0 {
+                if lk2.kind == 1 || lk2.kind == 3 { d2 = 1; ht2 = lk2.height; }
+            }
+        }
+        if d1 == 0 && d2 == 0 {
+            // Both settled — fall back to full-WHNF structural check
+            return is_def_eq_full(env, w1, w2);
+        }
+        if d1 > 0 && d2 == 0 { cur1 = unfold_def_head(env, w1); cur2 = w2; }
+        else if d1 == 0 && d2 > 0 { cur1 = w1; cur2 = unfold_def_head(env, w2); }
+        else if ht1 > ht2 { cur1 = unfold_def_head(env, w1); cur2 = w2; }
+        else if ht2 > ht1 { cur1 = w1; cur2 = unfold_def_head(env, w2); }
+        else { cur1 = unfold_def_head(env, w1); cur2 = unfold_def_head(env, w2); }
     }
-    env.def_eq_lhs.push(lo);
-    env.def_eq_rhs.push(hi);
-    let result: u64 = is_def_eq_core(env, w1, w2);
-    env.def_eq_lhs.pop();
-    env.def_eq_rhs.pop();
-    return result;
+    return 0;
+}
+
+pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
+    if e1 == e2 { return 1; }
+    // At deep recursion, fall back to full-WHNF (avoids stack explosion)
+    env.def_eq_depth = env.def_eq_depth + 1;
+    if env.def_eq_depth > 256 {
+        env.def_eq_depth = env.def_eq_depth - 1;
+        return is_def_eq_full(env, e1, e2);
+    }
+    // Use shared stack on Environment (avoids per-call Vec allocation)
+    let base: u64 = env.def_eq_lhs.len();
+    env.def_eq_lhs.push(e1);
+    env.def_eq_rhs.push(e2);
+    let mut ok: u64 = 1;
+    while env.def_eq_lhs.len() > base {
+        let a: u64 = env.def_eq_lhs[env.def_eq_lhs.len() - 1];
+        let b: u64 = env.def_eq_rhs[env.def_eq_rhs.len() - 1];
+        env.def_eq_lhs.pop();
+        env.def_eq_rhs.pop();
+        if ok > 0 {
+            let r: u64 = is_def_eq_one(env, a, b, env.def_eq_lhs, env.def_eq_rhs);
+            if r == 0 { ok = 0; }
+        }
+    }
+    env.def_eq_depth = env.def_eq_depth - 1;
+    return ok;
 }
 
 fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
@@ -561,9 +659,9 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             structural_done = 1;
         }
         if t1 == 3 {
-            let app_fn_eq: u64 = is_def_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]);
+            let app_fn_eq: u64 = is_def_eq_full(env, env.exprs.f1[w1], env.exprs.f1[w2]);
             if app_fn_eq > 0 {
-                let app_arg_eq: u64 = is_def_eq(env, env.exprs.f2[w1], env.exprs.f2[w2]);
+                let app_arg_eq: u64 = is_def_eq_full(env, env.exprs.f2[w1], env.exprs.f2[w2]);
                 if app_arg_eq > 0 {
                     return 1;
                 }
@@ -575,13 +673,13 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             let ty2: u64 = env.exprs.f2[w2];
             let body1: u64 = env.exprs.f3[w1];
             let body2: u64 = env.exprs.f3[w2];
-            if is_def_eq(env, ty1, ty2) > 0 {
+            if is_def_eq_full(env, ty1, ty2) > 0 {
                 let local_id: u64 = env.next_local_id;
                 env.next_local_id = env.next_local_id + 1;
                 let local_expr: u64 = expr_add_local(env.exprs, local_id, ty1);
                 let ob1: u64 = instantiate(env, body1, local_expr);
                 let ob2: u64 = instantiate(env, body2, local_expr);
-                if is_def_eq(env, ob1, ob2) > 0 { return 1; }
+                if is_def_eq_full(env, ob1, ob2) > 0 { return 1; }
             }
             structural_done = 1;
         }
@@ -608,7 +706,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                     }
                 }
                 if proj_ok > 0 {
-                    if is_def_eq(env, env.exprs.f3[w1], env.exprs.f3[w2]) > 0 { return 1; }
+                    if is_def_eq_full(env, env.exprs.f3[w1], env.exprs.f3[w2]) > 0 { return 1; }
                 }
             }
             structural_done = 1;
@@ -651,7 +749,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
             let ob1: u64 = instantiate(env, lam_body, local_expr);
             let ob2: u64 = expr_add_app(env.exprs, w2, local_expr);
-            return is_def_eq(env, ob1, ob2);
+            return is_def_eq_full(env, ob1, ob2);
         }
         if t2 == 4 {
             let lam_ty: u64 = env.exprs.f2[w2];
@@ -661,7 +759,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
             let ob2: u64 = instantiate(env, lam_body, local_expr);
             let ob1: u64 = expr_add_app(env.exprs, w1, local_expr);
-            return is_def_eq(env, ob1, ob2);
+            return is_def_eq_full(env, ob1, ob2);
         }
     }
 
@@ -674,7 +772,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                 let pi_sort: u64 = ensure_sort(env, pi_ty_ty);
                 if is_err(pi_sort) == 0 && is_level_zero(env, pi_sort) > 0 {
                     let pi_ty2: u64 = infer(env, w2);
-                    if is_err(pi_ty2) == 0 && is_def_eq(env, pi_ty, pi_ty2) > 0 {
+                    if is_err(pi_ty2) == 0 && is_def_eq_full(env, pi_ty, pi_ty2) > 0 {
                         return 1;
                     }
                 }
@@ -709,7 +807,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                     while efi < eta_nf {
                         let p1: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w1);
                         let p2: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w2);
-                        if is_def_eq(env, p1, p2) == 0 {
+                        if is_def_eq_full(env, p1, p2) == 0 {
                             eta_ok = 0;
                             efi = eta_nf;
                         }

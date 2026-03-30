@@ -213,6 +213,7 @@ fn main() -> i32 [io, read] {
         expr_arena_truncate(env.exprs, expr_watermark);
         while env.def_eq_lhs.len() > 0 { env.def_eq_lhs.pop(); }
         while env.def_eq_rhs.len() > 0 { env.def_eq_rhs.pop(); }
+        env.def_eq_depth = 0;
         di = di + 1;
     }
 
