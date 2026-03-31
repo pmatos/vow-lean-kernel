@@ -214,6 +214,7 @@ fn main() -> i32 [io, read] {
         while env.def_eq_lhs.len() > 0 { env.def_eq_lhs.pop(); }
         while env.def_eq_rhs.len() > 0 { env.def_eq_rhs.pop(); }
         env.def_eq_depth = 0;
+        env.kernel_fuel = 0;
         di = di + 1;
     }
 

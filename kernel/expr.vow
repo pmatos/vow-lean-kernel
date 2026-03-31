@@ -307,6 +307,10 @@ pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
     while arena.infer_cache.len() > size { arena.infer_cache.pop(); }
     while arena.whnf_cache.len() > size { arena.whnf_cache.pop(); }
     while arena.entries.len() > size { arena.entries.pop(); }
-    // Hash buckets may contain stale refs to truncated entries;
-    // find_or_push handles this with a bounds check (idx < tags.len())
+    // Clear hash buckets to remove stale refs to truncated entries
+    let mut bi: u64 = 0;
+    while bi < arena.hash_buckets.len() {
+        while arena.hash_buckets[bi].len() > 0 { arena.hash_buckets[bi].pop(); }
+        bi = bi + 1;
+    }
 }

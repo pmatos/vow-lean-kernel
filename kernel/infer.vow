@@ -176,6 +176,9 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
     if sty_head >= env.exprs.tags.len() || env.exprs.tags[sty_head] != 2 {
         return err_val();
     }
+    if sty_args.len() < num_params {
+        return err_val();
+    }
     let struct_levels: Vec<u64> = env.exprs.levels[sty_head];
 
     // Prop-projection check
@@ -317,6 +320,8 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
             return cached;
         }
     }
+    env.kernel_fuel = env.kernel_fuel + 1;
+    if env.kernel_fuel > 5000000 { return err_val(); }
     let result: u64 = infer_uncached(env, expr);
     while env.exprs.infer_cache.len() <= expr {
         env.exprs.infer_cache.push(4294967294);
@@ -362,7 +367,7 @@ fn check_theorem(env: Environment, ty: u64, val: u64) -> u64 {
     }
     let val_ty: u64 = infer(env, val);
     if is_err(val_ty) > 0 {
-        return 1;
+        return 2;
     }
     if is_def_eq_pi(env, val_ty, ty) == 0 {
         return 1;

@@ -512,7 +512,8 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     let w1: u64 = whnf(env, e1);
     let w2: u64 = whnf(env, e2);
     if w1 == w2 { return 1; }
-    // Depth limit to prevent stack overflow (same as committed cycle detection)
+    env.kernel_fuel = env.kernel_fuel + 1;
+    if env.kernel_fuel > 5000000 { return 0; }
     env.def_eq_depth = env.def_eq_depth + 1;
     if env.def_eq_depth > 5000 {
         env.def_eq_depth = env.def_eq_depth - 1;
