@@ -1,0 +1,51 @@
+module Main
+
+// Reproducer: struct field writes don't persist across recursive calls.
+// The guard field is set to 1 before recursion, but the recursive call
+// sees 0 and re-enters the guarded block, causing infinite recursion.
+
+pub struct State {
+    guard: u64,
+    data: Vec<u64>,
+}
+
+fn recursive_check(state: State, depth: u64) -> u64 {
+    if depth == 0 { return 1; }
+
+    if state.guard == 0 {
+        state.guard = 1;
+
+        // Push to data to ensure the struct is actively used
+        state.data.push(depth);
+
+        // Recursive call — should see state.guard == 1 and skip the if block
+        let result: u64 = recursive_check(state, depth - 1);
+
+        state.guard = 0;
+        return result;
+    }
+
+    // If guard works, recursion hits this path (guard == 1) and returns
+    return 1;
+}
+
+fn main() -> i32 [io] {
+    let state: State = State { guard: 0, data: Vec::new() };
+
+    let result: u64 = recursive_check(state, 10);
+
+    print_str(String::from("data.len = "));
+    print_u64(state.data.len());
+    print_str(String::from("\n"));
+
+    // With correct guard: data.len should be 1 (only first call enters the block)
+    // With broken guard: data.len would be 10 (every call enters the block)
+    if state.data.len() == 1 {
+        print_str(String::from("PASS: guard worked, only 1 entry\n"));
+        return 0i32;
+    }
+    print_str(String::from("FAIL: guard did not persist, "));
+    print_u64(state.data.len());
+    print_str(String::from(" entries instead of 1\n"));
+    return 1i32;
+}

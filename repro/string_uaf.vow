@@ -1,0 +1,193 @@
+module Main
+
+// Reproducer: String use-after-free in lookup pattern.
+//
+// Pattern from lean-kernel:
+// 1. name_to_string(arena, idx) creates a String by walking parent pointers
+// 2. The String is passed to env_lookup which does str_eq comparisons
+// 3. If the allocator frees the String between creation and comparison,
+//    str_eq reads garbage and returns wrong results
+//
+// This tests the pattern with deep recursion (like is_def_eq → whnf →
+// name_to_string → env_lookup chains)
+
+pub struct NameEntry {
+    tag: u64,
+    parent: u64,
+    field_str: String,
+    field_num: u64,
+}
+
+pub struct Names {
+    entries: Vec<NameEntry>,
+}
+
+pub struct Env {
+    names: Names,
+    decl_names: Vec<String>,
+    decl_vals: Vec<u64>,
+    data: Vec<u64>,
+}
+
+fn str_eq(a: String, b: String) -> u64 {
+    if a.len() != b.len() { return 0; }
+    let mut i: u64 = 0;
+    while i < a.len() {
+        if a.byte_at(i) != b.byte_at(i) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn name_to_string(names: Names, idx: u64) -> String {
+    let mut components: Vec<String> = Vec::new();
+    let mut cur: u64 = idx;
+    while cur < names.entries.len() {
+        let entry: NameEntry = names.entries[cur];
+        if entry.tag == 0 { cur = names.entries.len(); }
+        else if entry.tag == 1 {
+            components.push(entry.field_str);
+            cur = entry.parent;
+        } else {
+            cur = entry.parent;
+        }
+    }
+    let mut result: String = String::from("");
+    let mut i: u64 = components.len();
+    while i > 0 {
+        i = i - 1;
+        if result.len() > 0 { result.push_byte(46); }
+        let comp: String = components[i];
+        let mut j: u64 = 0;
+        while j < comp.len() {
+            result.push_byte(comp.byte_at(j));
+            j = j + 1;
+        }
+    }
+    return result;
+}
+
+fn env_lookup(env: Env, name_str: String) -> u64 {
+    let mut i: u64 = 0;
+    while i < env.decl_names.len() {
+        if str_eq(env.decl_names[i], name_str) > 0 {
+            return env.decl_vals[i];
+        }
+        i = i + 1;
+    }
+    return 4294967294;
+}
+
+// Deep recursive function that creates Strings via name_to_string,
+// passes them to env_lookup, and modifies env.data (causing allocations)
+fn check_recursive(env: Env, name_idx: u64, depth: u64) -> u64 {
+    if depth == 0 { return 1; }
+
+    // Create a String from name arena (like name_to_string in whnf/def_eq)
+    let name_str: String = name_to_string(env.names, name_idx);
+
+    // Look it up (like env_lookup in whnf delta reduction)
+    let val: u64 = env_lookup(env, name_str);
+    if val == 4294967294 { return 0; }
+
+    // Do work that causes allocations (like expr_add_app, whnf, etc.)
+    env.data.push(depth);
+    env.data.push(val);
+
+    // Create ANOTHER String and look it up (multiple lookups per call, like lazy_delta_step)
+    let name_str2: String = name_to_string(env.names, name_idx);
+    let val2: u64 = env_lookup(env, name_str2);
+
+    if val != val2 {
+        return 0;
+    }
+
+    // Recurse deeply (like is_def_eq → whnf → is_def_eq chain)
+    let r: u64 = check_recursive(env, name_idx, depth - 1);
+    if r == 0 { return 0; }
+
+    // After recursion, do MORE lookups (like try_proj_rec_eq's general fallback)
+    let name_str3: String = name_to_string(env.names, name_idx);
+    let val3: u64 = env_lookup(env, name_str3);
+
+    if val != val3 {
+        return 0;
+    }
+
+    return 1;
+}
+
+fn main() -> i32 [io] {
+    // Build name arena (mimics lean4export name entries)
+    let names: Names = Names { entries: Vec::new() };
+    // Anonymous root
+    names.entries.push(NameEntry { tag: 0, parent: 0, field_str: String::from(""), field_num: 0 });
+    // "Prod" = Str(Anonymous, "Prod") at index 1
+    names.entries.push(NameEntry { tag: 1, parent: 0, field_str: String::from("Prod"), field_num: 0 });
+    // "Prod.rec" = Str(Prod, "rec") at index 2
+    names.entries.push(NameEntry { tag: 1, parent: 1, field_str: String::from("rec"), field_num: 0 });
+    // "PProd" = Str(Anonymous, "PProd") at index 3
+    names.entries.push(NameEntry { tag: 1, parent: 0, field_str: String::from("PProd"), field_num: 0 });
+    // "Nat" = Str(Anonymous, "Nat") at index 4
+    names.entries.push(NameEntry { tag: 1, parent: 0, field_str: String::from("Nat"), field_num: 0 });
+
+    let env: Env = Env {
+        names: names,
+        decl_names: Vec::new(),
+        decl_vals: Vec::new(),
+        data: Vec::new(),
+    };
+
+    // Add declarations (like parsing def/thm/ind entries)
+    env.decl_names.push(String::from("Prod"));
+    env.decl_vals.push(100);
+    env.decl_names.push(String::from("Prod.rec"));
+    env.decl_vals.push(200);
+    env.decl_names.push(String::from("PProd"));
+    env.decl_vals.push(300);
+    env.decl_names.push(String::from("Nat"));
+    env.decl_vals.push(400);
+
+    // Run deep recursive checks (simulating 2000+ declaration checking cycles)
+    let mut failures: u64 = 0;
+    let mut cycle: u64 = 0;
+    while cycle < 2000 {
+        // Check each name at recursion depth 20
+        let mut ni: u64 = 1;
+        while ni < 5 {
+            let r: u64 = check_recursive(env, ni, 20);
+            if r == 0 {
+                if failures < 5 {
+                    print_str(String::from("FAIL at cycle "));
+                    print_u64(cycle);
+                    print_str(String::from(" name_idx="));
+                    print_u64(ni);
+                    print_str(String::from("\n"));
+                }
+                failures = failures + 1;
+            }
+            ni = ni + 1;
+        }
+
+        // Clear data (like arena truncation)
+        while env.data.len() > 0 { env.data.pop(); }
+
+        cycle = cycle + 1;
+        if cycle % 500 == 0 {
+            print_str(String::from("Cycle "));
+            print_u64(cycle);
+            print_str(String::from(" data_allocs="));
+            print_u64(cycle * 4 * 20 * 2);
+            print_str(String::from("\n"));
+        }
+    }
+
+    if failures == 0 {
+        print_str(String::from("PASS: all lookups consistent across 2000 cycles\n"));
+        return 0i32;
+    }
+    print_str(String::from("TOTAL FAILURES: "));
+    print_u64(failures);
+    print_str(String::from("\n"));
+    return 1i32;
+}

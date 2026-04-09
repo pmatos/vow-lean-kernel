@@ -1,0 +1,110 @@
+module Main
+
+// Reproducer: struct field writes on a LARGE struct (40+ fields)
+// Testing if the compiler miscalculates field offsets for large structs.
+
+pub struct BigState {
+    guard: u64,
+    f01: Vec<u64>,
+    f02: Vec<u64>,
+    f03: Vec<u64>,
+    f04: Vec<u64>,
+    f05: Vec<u64>,
+    f06: Vec<u64>,
+    f07: Vec<u64>,
+    f08: Vec<u64>,
+    f09: Vec<u64>,
+    f10: Vec<u64>,
+    f11: Vec<u64>,
+    f12: Vec<u64>,
+    f13: Vec<u64>,
+    f14: Vec<u64>,
+    f15: Vec<u64>,
+    f16: Vec<u64>,
+    f17: Vec<u64>,
+    f18: Vec<String>,
+    f19: Vec<u64>,
+    f20: Vec<u64>,
+    f21: Vec<u64>,
+    f22: Vec<u64>,
+    f23: Vec<u64>,
+    f24: Vec<u64>,
+    f25: Vec<u64>,
+    f26: Vec<u64>,
+    f27: Vec<u64>,
+    f28: Vec<u64>,
+    f29: Vec<u64>,
+    f30: Vec<u64>,
+    f31: Vec<Vec<u64>>,
+    f32v: Vec<u64>,
+    f33: Vec<u64>,
+    f34: Vec<u64>,
+    f35: Vec<u64>,
+    f36: Vec<u64>,
+    f37: Vec<u64>,
+    f38: Vec<u64>,
+    counter: u64,
+    dup_error: u64,
+}
+
+fn do_work(state: BigState, n: u64) {
+    let mut i: u64 = 0;
+    while i < n {
+        state.f01.push(i);
+        state.f02.push(i * 2);
+        i = i + 1;
+    }
+}
+
+fn recursive_check(state: BigState, depth: u64) -> u64 {
+    if depth == 0 { return 1; }
+
+    if state.guard == 0 {
+        state.guard = 1;
+        state.counter = state.counter + 1;
+
+        // Do work that modifies other struct fields
+        do_work(state, 10);
+
+        // Recursive call — should see state.guard == 1
+        let result: u64 = recursive_check(state, depth - 1);
+
+        state.guard = 0;
+        return result;
+    }
+
+    return 1;
+}
+
+fn main() -> i32 [io] {
+    let state: BigState = BigState {
+        guard: 0,
+        f01: Vec::new(), f02: Vec::new(), f03: Vec::new(), f04: Vec::new(),
+        f05: Vec::new(), f06: Vec::new(), f07: Vec::new(), f08: Vec::new(),
+        f09: Vec::new(), f10: Vec::new(), f11: Vec::new(), f12: Vec::new(),
+        f13: Vec::new(), f14: Vec::new(), f15: Vec::new(), f16: Vec::new(),
+        f17: Vec::new(), f18: Vec::new(), f19: Vec::new(), f20: Vec::new(),
+        f21: Vec::new(), f22: Vec::new(), f23: Vec::new(), f24: Vec::new(),
+        f25: Vec::new(), f26: Vec::new(), f27: Vec::new(), f28: Vec::new(),
+        f29: Vec::new(), f30: Vec::new(), f31: Vec::new(), f32v: Vec::new(),
+        f33: Vec::new(), f34: Vec::new(), f35: Vec::new(), f36: Vec::new(),
+        f37: Vec::new(), f38: Vec::new(),
+        counter: 0,
+        dup_error: 0,
+    };
+
+    let result: u64 = recursive_check(state, 20);
+
+    print_str(String::from("counter = "));
+    print_u64(state.counter);
+    print_str(String::from("\n"));
+
+    if state.counter == 1 {
+        print_str(String::from("PASS: guard worked on large struct\n"));
+        return 0i32;
+    }
+    print_str(String::from("FAIL: guard did not persist, counter="));
+    print_u64(state.counter);
+    print_str(String::from(" (expected 1)\n"));
+    return 1i32;
+}

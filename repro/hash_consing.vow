@@ -1,0 +1,132 @@
+module Main
+
+// Reproducer: hash-consing may produce different indices for identical
+// structures depending on allocator behavior. This tests whether
+// find_or_push (hash-consed insertion) is deterministic by creating
+// the same structure twice via different paths and checking index equality.
+
+pub struct Arena {
+    tags: Vec<u64>,
+    f1: Vec<u64>,
+    f2: Vec<u64>,
+    hash_buckets: Vec<Vec<u64>>,
+}
+
+fn arena_new() -> Arena {
+    let mut buckets: Vec<Vec<u64>> = Vec::new();
+    let mut i: u64 = 0;
+    while i < 256 {
+        buckets.push(Vec::new());
+        i = i + 1;
+    }
+    return Arena {
+        tags: Vec::new(),
+        f1: Vec::new(),
+        f2: Vec::new(),
+        hash_buckets: buckets,
+    };
+}
+
+fn hash_expr(tag: u64, v1: u64, v2: u64) -> u64 {
+    let h: u64 = tag * 2654435761 + v1 * 40503 + v2 * 65537;
+    return h % 256;
+}
+
+fn find_or_push(arena: Arena, tag: u64, v1: u64, v2: u64) -> u64 {
+    let h: u64 = hash_expr(tag, v1, v2);
+    let bucket: Vec<u64> = arena.hash_buckets[h];
+    let mut bi: u64 = 0;
+    while bi < bucket.len() {
+        let idx: u64 = bucket[bi];
+        if idx < arena.tags.len() {
+            if arena.tags[idx] == tag {
+                if arena.f1[idx] == v1 {
+                    if arena.f2[idx] == v2 {
+                        return idx;
+                    }
+                }
+            }
+        }
+        bi = bi + 1;
+    }
+    let new_idx: u64 = arena.tags.len();
+    arena.tags.push(tag);
+    arena.f1.push(v1);
+    arena.f2.push(v2);
+    arena.hash_buckets[h].push(new_idx);
+    return new_idx;
+}
+
+// Create a chain of expressions, then recreate the same chain
+// and check that all indices match (hash-consing deduplicates)
+fn build_chain(arena: Arena, base: u64, depth: u64) -> u64 {
+    if depth == 0 { return base; }
+    let inner: u64 = build_chain(arena, base, depth - 1);
+    return find_or_push(arena, 3, inner, base);
+}
+
+fn main() -> i32 [io] {
+    let arena: Arena = arena_new();
+
+    // Create base expressions
+    let a: u64 = find_or_push(arena, 0, 42, 0);
+    let b: u64 = find_or_push(arena, 0, 99, 0);
+
+    // Build chain 1
+    let chain1: u64 = build_chain(arena, a, 20);
+
+    // Add some noise (different allocations between chain builds)
+    let mut i: u64 = 0;
+    while i < 1000 {
+        find_or_push(arena, 1, i, i + 1);
+        i = i + 1;
+    }
+
+    // Build chain 2 (same structure as chain 1)
+    let chain2: u64 = build_chain(arena, a, 20);
+
+    if chain1 == chain2 {
+        print_str(String::from("PASS: hash-consing is deterministic ("));
+        print_u64(chain1);
+        print_str(String::from(" == "));
+        print_u64(chain2);
+        print_str(String::from(")\n"));
+    } else {
+        print_str(String::from("FAIL: hash-consing produced different indices ("));
+        print_u64(chain1);
+        print_str(String::from(" != "));
+        print_u64(chain2);
+        print_str(String::from(")\n"));
+        return 1i32;
+    }
+
+    // Test with truncation (simulating per-declaration arena reset)
+    let watermark: u64 = arena.tags.len();
+    let extra1: u64 = find_or_push(arena, 5, chain1, 0);
+
+    // Truncate
+    while arena.tags.len() > watermark {
+        arena.tags.pop();
+        arena.f1.pop();
+        arena.f2.pop();
+    }
+
+    // Rebuild same expression after truncation (stale bucket entries)
+    let extra2: u64 = find_or_push(arena, 5, chain1, 0);
+
+    if extra1 == extra2 {
+        print_str(String::from("PASS: post-truncation hash-consing consistent\n"));
+    } else {
+        print_str(String::from("FAIL: post-truncation indices differ ("));
+        print_u64(extra1);
+        print_str(String::from(" != "));
+        print_u64(extra2);
+        print_str(String::from(")\n"));
+    }
+
+    print_str(String::from("Arena size: "));
+    print_u64(arena.tags.len());
+    print_str(String::from("\n"));
+
+    return 0i32;
+}

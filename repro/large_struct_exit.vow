@@ -1,0 +1,111 @@
+module Main
+
+// Reproducer for SIGABRT on exit after processing grind-ring-5.
+// The crash happens after main() returns. This version simulates
+// the allocation/truncation cycle the checker performs:
+// grow arena, then pop back to watermark, repeat 2400+ times.
+
+struct BigState {
+    names: Vec<String>,
+    kinds: Vec<u64>,
+    tys: Vec<u64>,
+    vals: Vec<u64>,
+    heights: Vec<u64>,
+    hashes: Vec<u64>,
+    tags: Vec<u64>,
+    data0: Vec<u64>,
+    data1: Vec<u64>,
+    data2: Vec<u64>,
+    data3: Vec<u64>,
+    stack_a: Vec<u64>,
+    stack_b: Vec<u64>,
+}
+
+fn main() -> i32 [io] {
+    let mut state: BigState = BigState {
+        names: Vec::new(),
+        kinds: Vec::new(),
+        tys: Vec::new(),
+        vals: Vec::new(),
+        heights: Vec::new(),
+        hashes: Vec::new(),
+        tags: Vec::new(),
+        data0: Vec::new(),
+        data1: Vec::new(),
+        data2: Vec::new(),
+        data3: Vec::new(),
+        stack_a: Vec::new(),
+        stack_b: Vec::new(),
+    };
+
+    // Fill "permanent" arena entries (not truncated)
+    let mut i: u64 = 0;
+    while i < 181241 {
+        state.tags.push(i % 12);
+        state.data0.push(i);
+        state.data1.push(i + 1);
+        state.data2.push(i + 2);
+        state.data3.push(i + 3);
+        i = i + 1;
+    }
+
+    let watermark: u64 = state.tags.len();
+
+    // Simulate 2439 declaration-checking cycles
+    let mut decl: u64 = 0;
+    while decl < 2439 {
+        // Each cycle: add a "decl" and grow+truncate the arena
+        state.names.push(String::from("decl_name_xxxxxxxxxxxxxxxxxxxxxxxxxx"));
+        state.kinds.push(decl % 8);
+        state.tys.push(decl * 2);
+        state.vals.push(decl * 3);
+        state.heights.push(decl % 100);
+        state.hashes.push(decl % 65536);
+
+        // Grow arena (simulates expr allocation during type checking)
+        let mut j: u64 = 0;
+        while j < 500 {
+            state.tags.push((decl + j) % 12);
+            state.data0.push(decl + j);
+            state.data1.push(decl + j + 1);
+            state.data2.push(decl + j + 2);
+            state.data3.push(decl + j + 3);
+            j = j + 1;
+        }
+
+        // Truncate arena back to watermark (simulates expr_arena_truncate)
+        while state.tags.len() > watermark {
+            state.tags.pop();
+            state.data0.pop();
+            state.data1.pop();
+            state.data2.pop();
+            state.data3.pop();
+        }
+
+        // Simulate def_eq stack clear
+        let mut k: u64 = 0;
+        while k < 50 {
+            state.stack_a.push(k);
+            state.stack_b.push(k + 1);
+            k = k + 1;
+        }
+        while state.stack_a.len() > 0 { state.stack_a.pop(); }
+        while state.stack_b.len() > 0 { state.stack_b.pop(); }
+
+        if decl % 500 == 0 {
+            print_str(String::from("Cycle "));
+            print_u64(decl);
+            print_str(String::from("/2439\n"));
+        }
+
+        decl = decl + 1;
+    }
+
+    print_str(String::from("Done: arena="));
+    print_u64(state.tags.len());
+    print_str(String::from(" decls="));
+    print_u64(state.names.len());
+    print_str(String::from("\n"));
+
+    return 0i32;
+}

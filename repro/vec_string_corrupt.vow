@@ -1,0 +1,111 @@
+module Main
+
+// Reproducer for vow-lang#90: Vec<String> element corruption after truncation cycles.
+//
+// Pattern: a Vec<String> has permanent entries below a watermark.
+// Each cycle: push temporary String entries, then pop them back to the watermark.
+// After many cycles, reading a permanent String element returns corrupted data.
+//
+// This reproduces the exact bug found in the lean-kernel: arena.lit_val[943]
+// (a permanent Nat literal "0") fails str_eq after 383 truncation cycles.
+
+fn str_eq(a: String, b: String) -> u64 {
+    if a.len() != b.len() { return 0; }
+    let mut i: u64 = 0;
+    while i < a.len() {
+        if a.byte_at(i) != b.byte_at(i) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn make_string(n: u64) -> String {
+    let mut s: String = String::from("");
+    let mut v: u64 = n;
+    if v == 0 { s.push_byte(48); return s; }
+    while v > 0 {
+        s.push_byte(48 + v % 10);
+        v = v / 10;
+    }
+    return s;
+}
+
+fn main() -> i32 [io] {
+    let strings: Vec<String> = Vec::new();
+    let tags: Vec<u64> = Vec::new();
+    let vals: Vec<u64> = Vec::new();
+
+    // Create permanent entries (below watermark)
+    let mut i: u64 = 0;
+    while i < 1000 {
+        let s: String = make_string(i);
+        strings.push(s);
+        tags.push(i % 10);
+        vals.push(i * 3);
+        i = i + 1;
+    }
+    let watermark: u64 = strings.len();
+
+    // Save reference copies of some permanent strings
+    let ref_0: String = String::from("0");
+    let ref_42: String = make_string(42);
+    let ref_999: String = make_string(999);
+
+    let mut failures: u64 = 0;
+    let mut cycle: u64 = 0;
+    while cycle < 3000 {
+        // Push temporary entries
+        let mut j: u64 = 0;
+        while j < 50 {
+            let tmp: String = make_string(cycle * 100 + j + 10000);
+            strings.push(tmp);
+            tags.push((cycle + j) % 10);
+            vals.push(cycle * 7 + j);
+            j = j + 1;
+        }
+
+        // Truncate back to watermark
+        while strings.len() > watermark { strings.pop(); }
+        while tags.len() > watermark { tags.pop(); }
+        while vals.len() > watermark { vals.pop(); }
+
+        // Check permanent entries
+        if str_eq(strings[0], ref_0) == 0 {
+            if failures < 5 {
+                print_str(String::from("FAIL cycle "));
+                print_u64(cycle);
+                print_str(String::from(": strings[0] corrupted, len="));
+                print_u64(strings[0].len());
+                print_str(String::from("\n"));
+            }
+            failures = failures + 1;
+        }
+        if str_eq(strings[42], ref_42) == 0 {
+            if failures < 5 {
+                print_str(String::from("FAIL cycle "));
+                print_u64(cycle);
+                print_str(String::from(": strings[42] corrupted\n"));
+            }
+            failures = failures + 1;
+        }
+        if str_eq(strings[999], ref_999) == 0 {
+            if failures < 5 {
+                print_str(String::from("FAIL cycle "));
+                print_u64(cycle);
+                print_str(String::from(": strings[999] corrupted\n"));
+            }
+            failures = failures + 1;
+        }
+
+        cycle = cycle + 1;
+    }
+
+    if failures == 0 {
+        print_str(String::from("PASS: all String elements consistent across 3000 cycles\n"));
+        return 0i32;
+    }
+    print_str(String::from("TOTAL FAILURES: "));
+    print_u64(failures);
+    print_str(String::from("\n"));
+    return 1i32;
+}

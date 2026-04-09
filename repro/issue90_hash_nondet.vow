@@ -1,0 +1,672 @@
+module Main
+
+// Standalone stress reproducer for vow-lang#90.
+//
+// This deliberately combines the pieces that the smaller repros tested
+// separately:
+// 1. 14 parallel Vec fields in one arena struct
+// 2. 65536 hash buckets with hash-consing
+// 3. truncation back to a watermark while buckets keep stale entries
+// 4. a whnf_cache cleared every cycle
+// 5. deep mutually recursive normalization
+// 6. fresh String and Vec<u64> temporaries in each recursive frame
+//
+// The core invariant is the same one the kernel relies on:
+// two different WHNF paths for the same logical term must return the
+// same arena index after hash-consing. If they do not, print FAIL.
+
+pub struct Arena {
+    tags: Vec<u64>,
+    f1: Vec<u64>,
+    f2: Vec<u64>,
+    f3: Vec<u64>,
+    f4: Vec<u64>,
+    m1: Vec<u64>,
+    m2: Vec<u64>,
+    m3: Vec<u64>,
+    lbr: Vec<u64>,
+    flags: Vec<u64>,
+    depths: Vec<u64>,
+    levels: Vec<Vec<u64>>,
+    labels: Vec<String>,
+    whnf_cache: Vec<u64>,
+    hash_buckets: Vec<Vec<u64>>,
+    guard_failures: u64,
+}
+
+pub struct Pair {
+    lhs: u64,
+    rhs: u64,
+}
+
+fn arena_new() -> Arena {
+    let mut buckets: Vec<Vec<u64>> = Vec::new();
+    let mut i: u64 = 0;
+    while i < 65536 {
+        buckets.push(Vec::new());
+        i = i + 1;
+    }
+    return Arena {
+        tags: Vec::new(),
+        f1: Vec::new(),
+        f2: Vec::new(),
+        f3: Vec::new(),
+        f4: Vec::new(),
+        m1: Vec::new(),
+        m2: Vec::new(),
+        m3: Vec::new(),
+        lbr: Vec::new(),
+        flags: Vec::new(),
+        depths: Vec::new(),
+        levels: Vec::new(),
+        labels: Vec::new(),
+        whnf_cache: Vec::new(),
+        hash_buckets: buckets,
+        guard_failures: 0,
+    };
+}
+
+fn max_u64(a: u64, b: u64) -> u64 {
+    if a > b { return a; }
+    return b;
+}
+
+fn str_eq(a: String, b: String) -> u64 {
+    if a.len() != b.len() { return 0; }
+    let mut i: u64 = 0;
+    while i < a.len() {
+        if a.byte_at(i) != b.byte_at(i) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn vec_eq_u64(a: Vec<u64>, b: Vec<u64>) -> u64 {
+    if a.len() != b.len() { return 0; }
+    let mut i: u64 = 0;
+    while i < a.len() {
+        if a[i] != b[i] { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn append_u64(s: String, n: u64) {
+    if n == 0 {
+        s.push_byte(48);
+        return;
+    }
+    let mut digits: Vec<u64> = Vec::new();
+    let mut v: u64 = n;
+    while v > 0 {
+        digits.push(v % 10);
+        v = v / 10;
+    }
+    let mut i: u64 = digits.len();
+    while i > 0 {
+        i = i - 1;
+        s.push_byte(48 + digits[i]);
+    }
+}
+
+fn make_label(kind: u64, a: u64, b: u64) -> String {
+    let mut s: String = String::new();
+    if kind == 0 {
+        s.push_byte(80);
+    } else if kind == 1 {
+        s.push_byte(65);
+    } else {
+        s.push_byte(78);
+    }
+    s.push_byte(95);
+    append_u64(s, a);
+    s.push_byte(95);
+    append_u64(s, b);
+    return s;
+}
+
+fn make_levels(a: u64, b: u64, c: u64) -> Vec<u64> {
+    let mut out: Vec<u64> = Vec::new();
+    out.push(a % 97);
+    out.push(b % 89);
+    out.push(c % 83);
+    out.push((a + b + c) % 79);
+    return out;
+}
+
+fn get_lbr(arena: Arena, idx: u64) -> u64 {
+    if idx < arena.lbr.len() { return arena.lbr[idx]; }
+    return 0;
+}
+
+fn get_flag(arena: Arena, idx: u64) -> u64 {
+    if idx < arena.flags.len() { return arena.flags[idx]; }
+    return 0;
+}
+
+fn get_depth(arena: Arena, idx: u64) -> u64 {
+    if idx < arena.depths.len() { return arena.depths[idx]; }
+    return 0;
+}
+
+fn node_hash(tag: u64, f1: u64, f2: u64, f3: u64, f4: u64, m1: u64, m2: u64, m3: u64, flags: u64) -> u64 {
+    let mut h: u64 = tag * 2654435761 + f1 * 40503 + f2 * 65537 + f3 * 131071 + f4 * 524287 + m1 * 1048573 + m2 * 2097143 + m3 * 4194301 + flags * 8388593;
+    h = h % 65536;
+    return h;
+}
+
+fn entry_bucket(arena: Arena, idx: u64) -> u64 {
+    return node_hash(arena.tags[idx], arena.f1[idx], arena.f2[idx], arena.f3[idx], arena.f4[idx], arena.m1[idx], arena.m2[idx], arena.m3[idx], arena.flags[idx]);
+}
+
+fn find_or_push(arena: Arena, tag: u64, pf1: u64, pf2: u64, pf3: u64, pf4: u64, pm1: u64, pm2: u64, pm3: u64, plbr: u64, pflags: u64, pdepth: u64, plevels: Vec<u64>, plabel: String) -> u64 {
+    let h: u64 = node_hash(tag, pf1, pf2, pf3, pf4, pm1, pm2, pm3, pflags);
+    let bucket: Vec<u64> = arena.hash_buckets[h];
+    let mut i: u64 = 0;
+    while i < bucket.len() {
+        let idx: u64 = bucket[i];
+        if idx < arena.tags.len() {
+            if arena.tags[idx] == tag {
+                if arena.f1[idx] == pf1 {
+                    if arena.f2[idx] == pf2 {
+                        if arena.f3[idx] == pf3 {
+                            if arena.f4[idx] == pf4 {
+                                if arena.m1[idx] == pm1 {
+                                    if arena.m2[idx] == pm2 {
+                                        if arena.m3[idx] == pm3 {
+                                            if arena.lbr[idx] == plbr {
+                                                if arena.flags[idx] == pflags {
+                                                    if arena.depths[idx] == pdepth {
+                                                        if vec_eq_u64(arena.levels[idx], plevels) > 0 {
+                                                            if str_eq(arena.labels[idx], plabel) > 0 {
+                                                                return idx;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    let idx: u64 = arena.tags.len();
+    arena.tags.push(tag);
+    arena.f1.push(pf1);
+    arena.f2.push(pf2);
+    arena.f3.push(pf3);
+    arena.f4.push(pf4);
+    arena.m1.push(pm1);
+    arena.m2.push(pm2);
+    arena.m3.push(pm3);
+    arena.lbr.push(plbr);
+    arena.flags.push(pflags);
+    arena.depths.push(pdepth);
+    arena.levels.push(plevels);
+    arena.labels.push(plabel);
+    arena.whnf_cache.push(4294967294);
+    arena.hash_buckets[h].push(idx);
+    return idx;
+}
+
+fn push_local_no_dedup(arena: Arena, local_id: u64, ty: u64, depth_hint: u64) -> u64 {
+    let idx: u64 = arena.tags.len();
+    let levels: Vec<u64> = make_levels(local_id, ty, depth_hint);
+    let label: String = make_label(2, local_id, depth_hint);
+    arena.tags.push(10);
+    arena.f1.push(local_id);
+    arena.f2.push(ty);
+    arena.f3.push(0);
+    arena.f4.push(0);
+    arena.m1.push(depth_hint);
+    arena.m2.push(local_id % 97);
+    arena.m3.push(ty % 89);
+    arena.lbr.push(depth_hint + 1);
+    arena.flags.push((local_id + ty + depth_hint) % 67);
+    arena.depths.push(depth_hint);
+    arena.levels.push(levels);
+    arena.labels.push(label);
+    arena.whnf_cache.push(4294967294);
+    return idx;
+}
+
+fn mk_atom(arena: Arena, value: u64) -> u64 {
+    let levels: Vec<u64> = make_levels(value, 0, 0);
+    let label: String = make_label(2, value, 0);
+    return find_or_push(arena, 0, value, 0, 0, 0, value % 97, 0, 0, 1, value % 53, 0, levels, label);
+}
+
+fn mk_proj(arena: Arena, type_name: u64, proj_idx: u64, inner: u64) -> u64 {
+    let inner_flag: u64 = get_flag(arena, inner);
+    let pdepth: u64 = get_depth(arena, inner) + 1;
+    let levels: Vec<u64> = make_levels(type_name, proj_idx, inner_flag + pdepth);
+    let label: String = make_label(0, type_name, proj_idx);
+    let pm1: u64 = type_name % 97;
+    let pm2: u64 = proj_idx;
+    let pm3: u64 = inner % 61;
+    let plbr: u64 = get_lbr(arena, inner) + proj_idx + 1;
+    let pflags: u64 = (type_name + proj_idx + inner_flag) % 67;
+    return find_or_push(arena, 8, type_name, proj_idx, inner, 0, pm1, pm2, pm3, plbr, pflags, pdepth, levels, label);
+}
+
+fn mk_app(arena: Arena, func: u64, arg: u64) -> u64 {
+    let ff: u64 = get_flag(arena, func);
+    let af: u64 = get_flag(arena, arg);
+    let pdepth: u64 = max_u64(get_depth(arena, func), get_depth(arena, arg)) + 1;
+    let levels: Vec<u64> = make_levels(ff, af, pdepth);
+    let label: String = make_label(1, func, arg);
+    let pm1: u64 = ff;
+    let pm2: u64 = af;
+    let pm3: u64 = (func + arg) % 71;
+    let plbr: u64 = max_u64(get_lbr(arena, func), get_lbr(arena, arg));
+    let pflags: u64 = (ff + af + 3) % 67;
+    return find_or_push(arena, 3, func, arg, 0, 0, pm1, pm2, pm3, plbr, pflags, pdepth, levels, label);
+}
+
+fn mk_alias_a(arena: Arena, major: u64, arg: u64, type_name: u64, proj_idx: u64, depth_hint: u64) -> u64 {
+    let levels: Vec<u64> = make_levels(type_name, proj_idx, depth_hint);
+    let label: String = make_label(2, type_name, depth_hint);
+    return find_or_push(arena, 40, major, arg, type_name, proj_idx, depth_hint, type_name % 97, proj_idx, depth_hint + 1, (proj_idx + depth_hint) % 67, depth_hint, levels, label);
+}
+
+fn mk_alias_b(arena: Arena, major: u64, arg: u64, type_name: u64, proj_idx: u64, depth_hint: u64) -> u64 {
+    let levels: Vec<u64> = make_levels(type_name + 1, proj_idx, depth_hint);
+    let label: String = make_label(2, type_name + 1, depth_hint);
+    return find_or_push(arena, 41, major, arg, type_name, proj_idx, depth_hint, type_name % 97, proj_idx, depth_hint + 1, (proj_idx + depth_hint + 1) % 67, depth_hint, levels, label);
+}
+
+fn hot_proj_noise(arena: Arena, type_name: u64, proj_idx: u64, inner: u64, salt: u64, fuel: u64) -> u64 {
+    let inner_flag: u64 = get_flag(arena, inner);
+    let pdepth: u64 = get_depth(arena, inner) + 1;
+    let pm1: u64 = type_name % 97;
+    let pm2: u64 = proj_idx;
+    let pm3: u64 = inner % 61;
+    let plbr: u64 = get_lbr(arena, inner) + proj_idx + 1;
+    let pflags: u64 = (type_name + proj_idx + inner_flag) % 67;
+    let fake_type: u64 = type_name + salt;
+    let levels: Vec<u64> = make_levels(fake_type, proj_idx + fuel, inner + salt);
+    let label: String = make_label(0, fake_type, fuel + proj_idx);
+    return find_or_push(arena, 8, fake_type, proj_idx, inner, 0, pm1, pm2, pm3, plbr, pflags, pdepth, levels, label);
+}
+
+fn hot_app_noise(arena: Arena, func: u64, arg: u64, salt: u64, fuel: u64) -> u64 {
+    let ff: u64 = get_flag(arena, func);
+    let af: u64 = get_flag(arena, arg);
+    let pdepth: u64 = max_u64(get_depth(arena, func), get_depth(arena, arg)) + 1;
+    let pm1: u64 = ff;
+    let pm2: u64 = af;
+    let pm3: u64 = (func + arg) % 71;
+    let plbr: u64 = max_u64(get_lbr(arena, func), get_lbr(arena, arg));
+    let pflags: u64 = (ff + af + 3) % 67;
+    let fake_func: u64 = func + salt;
+    let levels: Vec<u64> = make_levels(fake_func, arg + fuel, salt);
+    let label: String = make_label(1, fake_func, fuel);
+    return find_or_push(arena, 3, fake_func, arg, 0, 0, pm1, pm2, pm3, plbr, pflags, pdepth, levels, label);
+}
+
+fn arena_clear_whnf_cache(arena: Arena) {
+    let mut i: u64 = 0;
+    while i < arena.whnf_cache.len() {
+        arena.whnf_cache[i] = 4294967294;
+        i = i + 1;
+    }
+}
+
+fn arena_truncate_keep_stale(arena: Arena, size: u64) {
+    while arena.tags.len() > size { arena.tags.pop(); }
+    while arena.f1.len() > size { arena.f1.pop(); }
+    while arena.f2.len() > size { arena.f2.pop(); }
+    while arena.f3.len() > size { arena.f3.pop(); }
+    while arena.f4.len() > size { arena.f4.pop(); }
+    while arena.m1.len() > size { arena.m1.pop(); }
+    while arena.m2.len() > size { arena.m2.pop(); }
+    while arena.m3.len() > size { arena.m3.pop(); }
+    while arena.lbr.len() > size { arena.lbr.pop(); }
+    while arena.flags.len() > size { arena.flags.pop(); }
+    while arena.depths.len() > size { arena.depths.pop(); }
+    while arena.levels.len() > size { arena.levels.pop(); }
+    while arena.labels.len() > size { arena.labels.pop(); }
+    while arena.whnf_cache.len() > size { arena.whnf_cache.pop(); }
+    // Intentionally keep hash_buckets untouched: stale indices accumulate.
+}
+
+fn whnf_left(arena: Arena, expr: u64, fuel: u64, salt: u64) -> u64 {
+    if expr >= arena.tags.len() {
+        return expr;
+    }
+    if expr < arena.whnf_cache.len() {
+        let cached: u64 = arena.whnf_cache[expr];
+        if cached != 4294967294 {
+            return cached;
+        }
+    }
+
+    let tag: u64 = arena.tags[expr];
+    if tag == 41 {
+        let forwarded: u64 = whnf_right(arena, expr, fuel, salt);
+        if expr < arena.whnf_cache.len() { arena.whnf_cache[expr] = forwarded; }
+        return forwarded;
+    }
+    if tag != 40 {
+        if expr < arena.whnf_cache.len() { arena.whnf_cache[expr] = expr; }
+        return expr;
+    }
+
+    let major0: u64 = arena.f1[expr];
+    let arg0: u64 = arena.f2[expr];
+    let type_name: u64 = arena.f3[expr];
+    let proj_idx: u64 = arena.f4[expr];
+    let old_m1: u64 = arena.m1[expr];
+    let old_flag: u64 = arena.flags[expr];
+    let old_depth: u64 = arena.depths[expr];
+    let old_label: String = arena.labels[expr];
+
+    let scratch_levels: Vec<u64> = make_levels(major0 + salt, arg0 + fuel, type_name);
+    let scratch_label: String = make_label(2, type_name + salt, fuel + expr);
+    let local1: u64 = push_local_no_dedup(arena, salt + expr, major0, fuel + 1);
+    let local2: u64 = push_local_no_dedup(arena, salt + expr + 1, arg0, fuel + 2);
+
+    let major_nf: u64 = if fuel > 0 { whnf_right(arena, major0, fuel - 1, salt + 65536) } else { major0 };
+    hot_proj_noise(arena, type_name, proj_idx, major_nf, salt + 131072, fuel);
+    let proj_nf: u64 = mk_proj(arena, type_name, proj_idx, major_nf);
+    let arg_nf: u64 = if fuel > 0 { whnf_left(arena, arg0, fuel - 1, salt + 196608) } else { arg0 };
+    hot_app_noise(arena, proj_nf, arg_nf, salt + 262144, fuel);
+
+    find_or_push(arena, 55, major_nf + salt, arg_nf, type_name, proj_idx, old_m1 + local1, fuel + local2, expr % 101, old_depth + fuel, old_flag, old_depth, scratch_levels, scratch_label);
+
+    let result: u64 = mk_app(arena, proj_nf, arg_nf);
+
+    if arena.m1[expr] != old_m1 { arena.guard_failures = arena.guard_failures + 1; }
+    if arena.flags[expr] != old_flag { arena.guard_failures = arena.guard_failures + 1; }
+    if arena.depths[expr] != old_depth { arena.guard_failures = arena.guard_failures + 1; }
+    if str_eq(arena.labels[expr], old_label) == 0 { arena.guard_failures = arena.guard_failures + 1; }
+
+    if expr < arena.whnf_cache.len() { arena.whnf_cache[expr] = result; }
+    return result;
+}
+
+fn whnf_right(arena: Arena, expr: u64, fuel: u64, salt: u64) -> u64 {
+    if expr >= arena.tags.len() {
+        return expr;
+    }
+    if expr < arena.whnf_cache.len() {
+        let cached: u64 = arena.whnf_cache[expr];
+        if cached != 4294967294 {
+            return cached;
+        }
+    }
+
+    let tag: u64 = arena.tags[expr];
+    if tag == 40 {
+        let forwarded: u64 = whnf_left(arena, expr, fuel, salt);
+        if expr < arena.whnf_cache.len() { arena.whnf_cache[expr] = forwarded; }
+        return forwarded;
+    }
+    if tag != 41 {
+        if expr < arena.whnf_cache.len() { arena.whnf_cache[expr] = expr; }
+        return expr;
+    }
+
+    let major0: u64 = arena.f1[expr];
+    let arg0: u64 = arena.f2[expr];
+    let type_name: u64 = arena.f3[expr];
+    let proj_idx: u64 = arena.f4[expr];
+    let old_m2: u64 = arena.m2[expr];
+    let old_flag: u64 = arena.flags[expr];
+    let old_depth: u64 = arena.depths[expr];
+    let old_label: String = arena.labels[expr];
+
+    let scratch_levels: Vec<u64> = make_levels(arg0 + salt, major0 + fuel, proj_idx);
+    let scratch_label: String = make_label(2, type_name + salt + 1, fuel + expr);
+    let local1: u64 = push_local_no_dedup(arena, salt + expr + 17, arg0, fuel + 1);
+    let local2: u64 = push_local_no_dedup(arena, salt + expr + 19, major0, fuel + 2);
+
+    let arg_nf: u64 = if fuel > 0 { whnf_left(arena, arg0, fuel - 1, salt + 65536) } else { arg0 };
+    let major_nf: u64 = if fuel > 0 { whnf_right(arena, major0, fuel - 1, salt + 131072) } else { major0 };
+    hot_proj_noise(arena, type_name, proj_idx, major_nf, salt + 196608, fuel);
+    let proj_nf: u64 = mk_proj(arena, type_name, proj_idx, major_nf);
+    hot_app_noise(arena, proj_nf, arg_nf, salt + 262144, fuel);
+
+    find_or_push(arena, 56, major_nf + salt, arg_nf + fuel, type_name, proj_idx, old_m2 + local1, fuel + 1 + local2, expr % 103, old_depth + fuel, old_flag, old_depth, scratch_levels, scratch_label);
+
+    let result: u64 = mk_app(arena, proj_nf, arg_nf);
+
+    if arena.m2[expr] != old_m2 { arena.guard_failures = arena.guard_failures + 1; }
+    if arena.flags[expr] != old_flag { arena.guard_failures = arena.guard_failures + 1; }
+    if arena.depths[expr] != old_depth { arena.guard_failures = arena.guard_failures + 1; }
+    if str_eq(arena.labels[expr], old_label) == 0 { arena.guard_failures = arena.guard_failures + 1; }
+
+    if expr < arena.whnf_cache.len() { arena.whnf_cache[expr] = result; }
+    return result;
+}
+
+fn build_nested_pair(arena: Arena, nest_depth: u64, leaf_major: u64, leaf_arg: u64, base_type: u64) -> Pair {
+    let mut lhs: u64 = mk_alias_a(arena, leaf_major, leaf_arg, base_type, 0, 0);
+    let mut rhs: u64 = mk_alias_b(arena, leaf_major, leaf_arg, base_type, 0, 0);
+    let mut i: u64 = 1;
+    while i <= nest_depth {
+        let prev_lhs: u64 = lhs;
+        let prev_rhs: u64 = rhs;
+        lhs = mk_alias_a(arena, prev_lhs, prev_rhs, base_type + i, i % 5, i);
+        rhs = mk_alias_b(arena, prev_lhs, prev_rhs, base_type + i, i % 5, i);
+        i = i + 1;
+    }
+    let left_nf: u64 = whnf_left(arena, lhs, nest_depth + 2, 0);
+    let right_nf: u64 = whnf_right(arena, rhs, nest_depth + 2, 65536);
+    if left_nf != right_nf {
+        return Pair { lhs: 4294967294, rhs: 4294967294 };
+    }
+    return Pair { lhs: lhs, rhs: rhs };
+}
+
+fn seed_permanent_noise(arena: Arena, target_size: u64, expected: u64) {
+    let mut i: u64 = 0;
+    while arena.tags.len() < target_size {
+        let base: u64 = i * 65536;
+        let a: u64 = mk_atom(arena, base + 1);
+        let b: u64 = mk_atom(arena, base + 2);
+        let p: u64 = mk_proj(arena, 1000 + base, i % 7, a);
+        let q: u64 = mk_app(arena, p, b);
+        if i % 2 == 0 {
+            mk_alias_a(arena, q, expected, 2000 + base, i % 5, 1);
+        } else {
+            mk_alias_b(arena, expected, q, 2000 + base, i % 5, 1);
+        }
+        i = i + 1;
+    }
+}
+
+fn run_temp_pair(arena: Arena, lhs_root: u64, rhs_root: u64, burst_depth: u64, salt: u64) -> u64 {
+    let tmp_l: u64 = mk_alias_a(arena, lhs_root, rhs_root, 5000 + salt, burst_depth % 5, burst_depth);
+    let tmp_r: u64 = mk_alias_b(arena, lhs_root, rhs_root, 5000 + salt, burst_depth % 5, burst_depth);
+    let w1: u64 = whnf_left(arena, tmp_l, burst_depth, salt);
+    let w2: u64 = whnf_right(arena, tmp_r, burst_depth, salt + 65536);
+    if w1 != w2 { return 0; }
+    return 1;
+}
+
+fn spray_canonical_bucket(arena: Arena, expected: u64, spray_count: u64, salt: u64) {
+    if expected >= arena.tags.len() { return; }
+    if arena.tags[expected] != 3 { return; }
+
+    let func: u64 = arena.f1[expected];
+    let arg: u64 = arena.f2[expected];
+
+    let mut i: u64 = 0;
+    while i < spray_count {
+        hot_app_noise(arena, func, arg, salt + i * 65536, i);
+        i = i + 1;
+    }
+
+    if func < arena.tags.len() {
+        if arena.tags[func] == 8 {
+            let type_name: u64 = arena.f1[func];
+            let proj_idx: u64 = arena.f2[func];
+            let inner: u64 = arena.f3[func];
+            let mut j: u64 = 0;
+            while j < spray_count {
+                hot_proj_noise(arena, type_name, proj_idx, inner, salt + (spray_count + j) * 65536, j);
+                j = j + 1;
+            }
+        }
+    }
+}
+
+fn main() -> i32 [io] {
+    let arena: Arena = arena_new();
+
+    let permanent_target: u64 = 181000;
+    let cycles: u64 = 2600;
+    let nest_depth: u64 = 12;
+    let burst_pairs: u64 = 3;
+    let burst_depth: u64 = 4;
+    let spray_count: u64 = 8;
+
+    let leaf_major: u64 = mk_atom(arena, 11);
+    let leaf_arg: u64 = mk_atom(arena, 29);
+    let roots: Pair = build_nested_pair(arena, nest_depth, leaf_major, leaf_arg, 700);
+    if roots.lhs == 4294967294 {
+        print_str(String::from("FAIL bootstrap: left/right WHNF already diverged\n"));
+        return 1i32;
+    }
+
+    let lhs_root: u64 = roots.lhs;
+    let rhs_root: u64 = roots.rhs;
+    let expected0: u64 = whnf_left(arena, lhs_root, nest_depth + 2, 0);
+    let expected1: u64 = whnf_right(arena, rhs_root, nest_depth + 2, 65536);
+    if expected0 != expected1 {
+        print_str(String::from("FAIL bootstrap expected mismatch "));
+        print_u64(expected0);
+        print_str(String::from(" vs "));
+        print_u64(expected1);
+        print_str(String::from("\n"));
+        return 1i32;
+    }
+
+    seed_permanent_noise(arena, permanent_target, expected0);
+    arena_clear_whnf_cache(arena);
+
+    let expected: u64 = whnf_left(arena, lhs_root, nest_depth + 2, 0);
+    let expected_rhs: u64 = whnf_right(arena, rhs_root, nest_depth + 2, 65536);
+    if expected != expected0 || expected_rhs != expected {
+        print_str(String::from("FAIL permanent seeding changed canonical index "));
+        print_u64(expected0);
+        print_str(String::from(" -> "));
+        print_u64(expected);
+        print_str(String::from(" / "));
+        print_u64(expected_rhs);
+        print_str(String::from("\n"));
+        return 1i32;
+    }
+
+    let watermark: u64 = arena.tags.len();
+    let expected_bucket: u64 = entry_bucket(arena, expected);
+    let mut cycle: u64 = 0;
+
+    while cycle < cycles {
+        arena_clear_whnf_cache(arena);
+        let salt: u64 = (cycle + 1) * 65536;
+
+        let w1: u64 = whnf_left(arena, lhs_root, nest_depth + 2, salt);
+        let w2: u64 = whnf_right(arena, rhs_root, nest_depth + 2, salt + 65536);
+
+        if w1 != w2 {
+            print_str(String::from("FAIL cycle "));
+            print_u64(cycle);
+            print_str(String::from(": w1="));
+            print_u64(w1);
+            print_str(String::from(" w2="));
+            print_u64(w2);
+            print_str(String::from(" expected="));
+            print_u64(expected);
+            print_str(String::from(" bucket_len="));
+            print_u64(arena.hash_buckets[expected_bucket].len());
+            print_str(String::from(" arena="));
+            print_u64(arena.tags.len());
+            print_str(String::from("\n"));
+            return 1i32;
+        }
+
+        if w1 != expected {
+            print_str(String::from("FAIL cycle "));
+            print_u64(cycle);
+            print_str(String::from(": canonical index changed from "));
+            print_u64(expected);
+            print_str(String::from(" to "));
+            print_u64(w1);
+            print_str(String::from(" bucket_len="));
+            print_u64(arena.hash_buckets[expected_bucket].len());
+            print_str(String::from("\n"));
+            return 1i32;
+        }
+
+        spray_canonical_bucket(arena, expected, spray_count, salt + 327680);
+
+        let mut bi: u64 = 0;
+        while bi < burst_pairs {
+            let ok: u64 = run_temp_pair(arena, lhs_root, rhs_root, burst_depth, salt + (bi + 3) * 65536);
+            if ok == 0 {
+                print_str(String::from("FAIL cycle "));
+                print_u64(cycle);
+                print_str(String::from(": temporary pair diverged at burst "));
+                print_u64(bi);
+                print_str(String::from("\n"));
+                return 1i32;
+            }
+            bi = bi + 1;
+        }
+
+        arena_truncate_keep_stale(arena, watermark);
+
+        if arena.tags.len() != watermark {
+            print_str(String::from("FAIL cycle "));
+            print_u64(cycle);
+            print_str(String::from(": truncate left arena at "));
+            print_u64(arena.tags.len());
+            print_str(String::from(" instead of "));
+            print_u64(watermark);
+            print_str(String::from("\n"));
+            return 1i32;
+        }
+
+        if arena.guard_failures > 0 {
+            print_str(String::from("FAIL cycle "));
+            print_u64(cycle);
+            print_str(String::from(": post-recursion field reread mismatch count="));
+            print_u64(arena.guard_failures);
+            print_str(String::from("\n"));
+            return 1i32;
+        }
+
+        cycle = cycle + 1;
+        if cycle % 250 == 0 {
+            print_str(String::from("cycle "));
+            print_u64(cycle);
+            print_str(String::from(" watermark="));
+            print_u64(watermark);
+            print_str(String::from(" bucket="));
+            print_u64(expected_bucket);
+            print_str(String::from(" bucket_len="));
+            print_u64(arena.hash_buckets[expected_bucket].len());
+            print_str(String::from("\n"));
+        }
+    }
+
+    print_str(String::from("PASS watermark="));
+    print_u64(watermark);
+    print_str(String::from(" expected="));
+    print_u64(expected);
+    print_str(String::from(" bucket="));
+    print_u64(expected_bucket);
+    print_str(String::from(" bucket_len="));
+    print_u64(arena.hash_buckets[expected_bucket].len());
+    print_str(String::from("\n"));
+    return 0i32;
+}

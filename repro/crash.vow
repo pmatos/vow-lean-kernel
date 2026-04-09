@@ -1,0 +1,91 @@
+module Main
+
+// Reproducer for SIGSEGV with new allocator.
+// Pattern: read Vec element, call function that grows the Vec
+// (causing reallocation), then use previously-read values.
+
+pub struct Arena {
+    tags: Vec<u64>,
+    vals: Vec<u64>,
+}
+
+fn arena_new() -> Arena {
+    return Arena {
+        tags: Vec::new(),
+        vals: Vec::new(),
+    };
+}
+
+fn arena_push(arena: Arena, tag: u64, val: u64) -> u64 {
+    let idx: u64 = arena.tags.len();
+    arena.tags.push(tag);
+    arena.vals.push(val);
+    return idx;
+}
+
+// This function reads from the arena, then calls grow_arena which
+// pushes many entries (potentially reallocating), then reads again.
+fn process(arena: Arena, idx: u64, depth: u64) -> u64 {
+    if depth == 0 { return 0; }
+    if idx >= arena.tags.len() { return 0; }
+
+    // Read values from arena
+    let tag: u64 = arena.tags[idx];
+    let val: u64 = arena.vals[idx];
+
+    // Call function that grows the arena (may reallocate Vec buffers)
+    let new_idx: u64 = grow_arena(arena, depth);
+
+    // Use the previously-read values (tag, val are u64 copies, should be fine)
+    // But also read from arena again — the Vec may have been reallocated
+    let tag2: u64 = arena.tags[idx];
+    let val2: u64 = arena.vals[idx];
+
+    if tag != tag2 { return 999; }
+    if val != val2 { return 998; }
+
+    // Recurse
+    return process(arena, new_idx, depth - 1);
+}
+
+fn grow_arena(arena: Arena, n: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < n {
+        let idx: u64 = arena.tags.len();
+        arena.tags.push(i + 100);
+        arena.vals.push(i * 7);
+        i = i + 1;
+    }
+    return arena.tags.len() - 1;
+}
+
+fn main() -> i32 [io] {
+    let arena: Arena = arena_new();
+
+    // Seed with initial entries
+    let mut i: u64 = 0;
+    while i < 100 {
+        arena_push(arena, i, i * 3);
+        i = i + 1;
+    }
+
+    // Run the pattern many times to trigger reallocation
+    let mut round: u64 = 0;
+    while round < 1000 {
+        let result: u64 = process(arena, round % 100, 50);
+        if result > 0 {
+            print_str(String::from("ERROR: data mismatch at round "));
+            print_u64(round);
+            print_str(String::from(" result="));
+            print_u64(result);
+            print_str(String::from("\n"));
+            return 1i32;
+        }
+        round = round + 1;
+    }
+
+    print_str(String::from("OK: "));
+    print_u64(arena.tags.len());
+    print_str(String::from(" entries, no crashes\n"));
+    return 0i32;
+}

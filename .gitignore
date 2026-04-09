@@ -1,1 +1,22 @@
 lean_checker
+lean_checker.o
+
+.claude/settings.local.json
+
+# Test data (large NDJSON files downloaded from arena)
+tests/good/*.ndjson
+tests/bad/*.ndjson
+
+# Reproducer build artifacts
+repro/*.o
+repro/large_struct_exit
+repro/crash
+repro/crash_arena
+repro/crash_str
+repro/hash_consing
+repro/hash_dedup
+repro/string_uaf
+repro/struct_field_large
+repro/struct_field_persist
+repro/vec_string_corrupt
+repro/arena_string_corrupt

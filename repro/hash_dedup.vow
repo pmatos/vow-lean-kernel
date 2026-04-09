@@ -1,0 +1,151 @@
+module Main
+
+// Reproducer: hash-consing deduplication breaks after many truncation cycles.
+//
+// This simulates the lean-kernel's expression arena pattern:
+// 1. Parse phase: create permanent entries (below watermark)
+// 2. Check phase: create temporary entries, then truncate back to watermark
+// 3. After many check cycles, structurally identical entries may get
+//    different arena indices (deduplication failure)
+//
+// Expected: find_or_push always returns the same index for identical entries
+// Bug: after enough truncation cycles, deduplication fails
+
+pub struct Arena {
+    tags: Vec<u64>,
+    f1: Vec<u64>,
+    f2: Vec<u64>,
+    f3: Vec<u64>,
+    hash_buckets: Vec<Vec<u64>>,
+}
+
+fn arena_new() -> Arena {
+    let mut buckets: Vec<Vec<u64>> = Vec::new();
+    let mut i: u64 = 0;
+    while i < 65536 {
+        buckets.push(Vec::new());
+        i = i + 1;
+    }
+    return Arena {
+        tags: Vec::new(),
+        f1: Vec::new(),
+        f2: Vec::new(),
+        f3: Vec::new(),
+        hash_buckets: buckets,
+    };
+}
+
+fn expr_hash(tag: u64, pf1: u64, pf2: u64, pf3: u64) -> u64 {
+    let h: u64 = tag * 2654435761 + pf1 * 40503 + pf2 * 65537 + pf3 * 131071;
+    return h % 65536;
+}
+
+fn find_or_push(arena: Arena, tag: u64, v1: u64, v2: u64, v3: u64) -> u64 {
+    let h: u64 = expr_hash(tag, v1, v2, v3);
+    let bucket: Vec<u64> = arena.hash_buckets[h];
+    let mut i: u64 = 0;
+    while i < bucket.len() {
+        let idx: u64 = bucket[i];
+        if idx < arena.tags.len() {
+            if arena.tags[idx] == tag {
+                if arena.f1[idx] == v1 {
+                    if arena.f2[idx] == v2 {
+                        if arena.f3[idx] == v3 {
+                            return idx;
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    let new_idx: u64 = arena.tags.len();
+    arena.tags.push(tag);
+    arena.f1.push(v1);
+    arena.f2.push(v2);
+    arena.f3.push(v3);
+    arena.hash_buckets[h].push(new_idx);
+    return new_idx;
+}
+
+fn arena_truncate(arena: Arena, size: u64) {
+    while arena.tags.len() > size { arena.tags.pop(); }
+    while arena.f1.len() > size { arena.f1.pop(); }
+    while arena.f2.len() > size { arena.f2.pop(); }
+    while arena.f3.len() > size { arena.f3.pop(); }
+    // NOTE: hash_buckets NOT cleaned — stale entries accumulate
+    // (this matches the lean-kernel's original behavior)
+}
+
+fn main() -> i32 [io] {
+    let arena: Arena = arena_new();
+
+    // Parse phase: create 1000 permanent entries
+    let mut i: u64 = 0;
+    while i < 1000 {
+        find_or_push(arena, i % 5, i, i + 1, i * 3);
+        i = i + 1;
+    }
+    let watermark: u64 = arena.tags.len();
+
+    // Remember some entries created during parse for later comparison
+    let ref_a: u64 = find_or_push(arena, 3, 42, 99, 7);
+    let ref_b: u64 = find_or_push(arena, 3, 100, 200, 300);
+
+    let mut failures: u64 = 0;
+    let mut cycle: u64 = 0;
+    while cycle < 3000 {
+        // Check phase: create temporary entries (simulates type checking)
+        let mut j: u64 = 0;
+        while j < 50 {
+            find_or_push(arena, (cycle + j) % 10, cycle * 100 + j, j * 7, cycle);
+            j = j + 1;
+        }
+
+        // Truncate back to watermark
+        arena_truncate(arena, watermark);
+
+        // Verify: re-creating the SAME entries should return the SAME indices
+        let check_a: u64 = find_or_push(arena, 3, 42, 99, 7);
+        let check_b: u64 = find_or_push(arena, 3, 100, 200, 300);
+
+        if check_a != ref_a {
+            if failures < 5 {
+                print_str(String::from("FAIL cycle "));
+                print_u64(cycle);
+                print_str(String::from(": ref_a="));
+                print_u64(ref_a);
+                print_str(String::from(" check_a="));
+                print_u64(check_a);
+                print_str(String::from("\n"));
+            }
+            failures = failures + 1;
+        }
+        if check_b != ref_b {
+            if failures < 5 {
+                print_str(String::from("FAIL cycle "));
+                print_u64(cycle);
+                print_str(String::from(": ref_b="));
+                print_u64(ref_b);
+                print_str(String::from(" check_b="));
+                print_u64(check_b);
+                print_str(String::from("\n"));
+            }
+            failures = failures + 1;
+        }
+
+        // Also truncate the check entries we just created
+        arena_truncate(arena, watermark);
+
+        cycle = cycle + 1;
+    }
+
+    if failures == 0 {
+        print_str(String::from("PASS: deduplication consistent across 3000 cycles\n"));
+        return 0i32;
+    }
+    print_str(String::from("TOTAL FAILURES: "));
+    print_u64(failures);
+    print_str(String::from("\n"));
+    return 1i32;
+}

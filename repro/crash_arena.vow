@@ -1,0 +1,160 @@
+module Main
+
+// Reproducer mimicking ExprArena: many parallel Vecs in a struct.
+// Read from multiple Vecs, call functions that push to all of them,
+// read again. Tests if Vec reallocation invalidates cached pointers
+// to sibling Vecs in the same struct.
+
+pub struct Arena {
+    tags: Vec<u64>,
+    f1: Vec<u64>,
+    f2: Vec<u64>,
+    f3: Vec<u64>,
+    names: Vec<String>,
+    cache: Vec<u64>,
+}
+
+fn arena_new() -> Arena {
+    return Arena {
+        tags: Vec::new(),
+        f1: Vec::new(),
+        f2: Vec::new(),
+        f3: Vec::new(),
+        names: Vec::new(),
+        cache: Vec::new(),
+    };
+}
+
+fn arena_push(arena: Arena, tag: u64, v1: u64, v2: u64, v3: u64) -> u64 {
+    let idx: u64 = arena.tags.len();
+    arena.tags.push(tag);
+    arena.f1.push(v1);
+    arena.f2.push(v2);
+    arena.f3.push(v3);
+    arena.cache.push(4294967294);
+    return idx;
+}
+
+fn str_eq(a: String, b: String) -> u64 {
+    if a.len() != b.len() { return 0; }
+    let mut i: u64 = 0;
+    while i < a.len() {
+        if a.byte_at(i) != b.byte_at(i) { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+fn build_name(idx: u64) -> String {
+    let mut s: String = String::from("n");
+    let mut v: u64 = idx;
+    if v == 0 { s.push_byte(48); return s; }
+    while v > 0 {
+        s.push_byte(48 + v % 10);
+        v = v / 10;
+    }
+    return s;
+}
+
+fn lookup_by_name(arena: Arena, names: Vec<String>, target: String) -> u64 {
+    let mut i: u64 = 0;
+    while i < names.len() {
+        if str_eq(names[i], target) > 0 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return 4294967294;
+}
+
+// Mimics try_proj_rec_eq: reads from arena, creates Strings for lookup,
+// calls recursive check (which pushes to arena), then reads more
+fn check_entry(arena: Arena, names: Vec<String>, idx: u64, depth: u64) -> u64 {
+    if depth == 0 { return 1; }
+    if idx >= arena.tags.len() { return 1; }
+
+    // Read from multiple Vec fields (like reading struct_name, proj_idx, proj_expr)
+    let tag: u64 = arena.tags[idx];
+    let v1: u64 = arena.f1[idx];
+    let v2: u64 = arena.f2[idx];
+    let v3: u64 = arena.f3[idx];
+
+    // Create a String and look it up (like name_to_string + env_lookup)
+    let name: String = build_name(v1);
+    let found: u64 = lookup_by_name(arena, names, name);
+
+    // Create another String lookup (like looking up the rec name)
+    let name2: String = build_name(v2);
+    let found2: u64 = lookup_by_name(arena, names, name2);
+
+    // Push new entries to the arena (like expr_add_proj/expr_add_app)
+    let new1: u64 = arena_push(arena, tag + 10, v1, v2, v3);
+    let new2: u64 = arena_push(arena, tag + 20, v2, v3, v1);
+
+    // Deep recursive call (like is_def_eq → whnf → is_def_eq)
+    let r: u64 = check_entry(arena, names, new1, depth - 1);
+    if r == 0 { return 0; }
+
+    // After recursion, read from arena again at ORIGINAL index
+    // (the arena grew during recursion — Vecs may have reallocated)
+    let tag2: u64 = arena.tags[idx];
+    let v1b: u64 = arena.f1[idx];
+    let v2b: u64 = arena.f2[idx];
+
+    if tag != tag2 { return 0; }
+    if v1 != v1b { return 0; }
+    if v2 != v2b { return 0; }
+
+    // Push more and recurse again (like the general fallback after is_def_eq)
+    let new3: u64 = arena_push(arena, tag + 30, v3, v1, v2);
+    let r2: u64 = check_entry(arena, names, new3, depth - 1);
+
+    return r2;
+}
+
+fn main() -> i32 [io] {
+    let arena: Arena = arena_new();
+    let names: Vec<String> = Vec::new();
+
+    // Seed arena and names
+    let mut i: u64 = 0;
+    while i < 200 {
+        arena_push(arena, i % 5, i, (i + 1) % 200, (i + 2) % 200);
+        let n: String = build_name(i);
+        names.push(n);
+        i = i + 1;
+    }
+
+    // Run checks (like checking declarations)
+    let mut round: u64 = 0;
+    while round < 500 {
+        let r: u64 = check_entry(arena, names, round % 200, 10);
+        if r == 0 {
+            print_str(String::from("MISMATCH at round "));
+            print_u64(round);
+            print_str(String::from("\n"));
+            return 1i32;
+        }
+
+        // Truncate arena back to watermark (like per-declaration truncation)
+        while arena.tags.len() > 200 {
+            arena.tags.pop();
+            arena.f1.pop();
+            arena.f2.pop();
+            arena.f3.pop();
+            arena.cache.pop();
+        }
+
+        round = round + 1;
+        if round % 100 == 0 {
+            print_str(String::from("Round "));
+            print_u64(round);
+            print_str(String::from(" arena="));
+            print_u64(arena.tags.len());
+            print_str(String::from("\n"));
+        }
+    }
+
+    print_str(String::from("OK\n"));
+    return 0i32;
+}
