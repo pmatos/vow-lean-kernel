@@ -209,12 +209,87 @@ fn main() -> i32 [io, read] {
         } else if r == 2 {
             declined = 1;
         }
+        // Diagnostic dump around affected decls and on decline
+        let mut want_dump: u64 = 0;
+        if di >= 2030 && di <= 2085 { want_dump = 1; }
+        if r == 2 { want_dump = 1; }
+        if env.cnt_is_def_eq_full > 200000 { want_dump = 1; }
+        if want_dump > 0 {
+            print_str(String::from("DIAG decl "));
+            print_u64(di);
+            print_str(String::from(" name="));
+            print_str(env.decl_names[di]);
+            print_str(String::from(" kind="));
+            print_u64(env.decl_kinds[di]);
+            print_str(String::from(" r="));
+            print_u64(r);
+            print_str(String::from(" fuel="));
+            print_u64(env.kernel_fuel);
+            print_str(String::from(" infer_u="));
+            print_u64(env.cnt_infer_uncached);
+            print_str(String::from(" deq_full="));
+            print_u64(env.cnt_is_def_eq_full);
+            print_str(String::from(" deq_one="));
+            print_u64(env.cnt_is_def_eq_one);
+            print_str(String::from(" cong_hit="));
+            print_u64(env.cnt_cong_hit);
+            print_str(String::from(" cong_ft="));
+            print_u64(env.cnt_cong_fallthrough);
+            print_str(String::from(" ld_iter="));
+            print_u64(env.cnt_lazy_delta_iter);
+            print_str(String::from(" whnf_nd="));
+            print_u64(env.cnt_whnf_core_nodelta);
+            print_str(String::from(" dfull{app="));
+            print_u64(env.cnt_dfull_app);
+            print_str(String::from(",lf="));
+            print_u64(env.cnt_dfull_lamforall);
+            print_str(String::from(",prj="));
+            print_u64(env.cnt_dfull_proj);
+            print_str(String::from(",pi="));
+            print_u64(env.cnt_dfull_proofirrel);
+            print_str(String::from(",eta="));
+            print_u64(env.cnt_dfull_eta);
+            print_str(String::from(",lf="));
+            print_u64(env.cnt_dfull_leaf);
+            print_str(String::from(",ee="));
+            print_u64(env.cnt_dfull_etaexpand);
+            print_str(String::from(",pr="));
+            print_u64(env.cnt_dfull_projrec);
+            print_str(String::from("} tags=["));
+            let mut ti: u64 = 0;
+            while ti < env.cnt_infer_tag.len() {
+                if ti > 0 { print_str(String::from(",")); }
+                print_u64(env.cnt_infer_tag[ti]);
+                ti = ti + 1;
+            }
+            print_str(String::from("]\n"));
+        }
         expr_arena_clear_caches(env.exprs);
         expr_arena_truncate(env.exprs, expr_watermark);
         while env.def_eq_lhs.len() > 0 { env.def_eq_lhs.pop(); }
         while env.def_eq_rhs.len() > 0 { env.def_eq_rhs.pop(); }
         env.def_eq_depth = 0;
         env.kernel_fuel = 0;
+        env.cnt_infer_uncached = 0;
+        env.cnt_is_def_eq_full = 0;
+        env.cnt_is_def_eq_one = 0;
+        env.cnt_cong_hit = 0;
+        env.cnt_cong_fallthrough = 0;
+        env.cnt_lazy_delta_iter = 0;
+        env.cnt_whnf_core_nodelta = 0;
+        env.cnt_dfull_app = 0;
+        env.cnt_dfull_lamforall = 0;
+        env.cnt_dfull_proj = 0;
+        env.cnt_dfull_proofirrel = 0;
+        env.cnt_dfull_eta = 0;
+        env.cnt_dfull_leaf = 0;
+        env.cnt_dfull_etaexpand = 0;
+        env.cnt_dfull_projrec = 0;
+        let mut rti: u64 = 0;
+        while rti < env.cnt_infer_tag.len() {
+            env.cnt_infer_tag[rti] = 0;
+            rti = rti + 1;
+        }
         di = di + 1;
     }
 

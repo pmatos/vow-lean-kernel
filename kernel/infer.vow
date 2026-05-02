@@ -322,6 +322,11 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     }
     env.kernel_fuel = env.kernel_fuel + 1;
     if env.kernel_fuel > 5000000 { return err_val(); }
+    env.cnt_infer_uncached = env.cnt_infer_uncached + 1;
+    let tag_v: u64 = env.exprs.tags[expr];
+    if tag_v < env.cnt_infer_tag.len() {
+        env.cnt_infer_tag[tag_v] = env.cnt_infer_tag[tag_v] + 1;
+    }
     let result: u64 = infer_uncached(env, expr);
     while env.exprs.infer_cache.len() <= expr {
         env.exprs.infer_cache.push(4294967294);
