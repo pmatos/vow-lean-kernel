@@ -550,6 +550,67 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             }
                         }
                     }
+                    // General structure-eta fallback: if the inductive is a single-ctor
+                    // structure (no indices, nf > 0) and the major is not a constructor,
+                    // eta-expand the major to `Ctor params (Proj#0 major) .. (Proj#{nf-1} major)`
+                    // and let iota fire on the next loop iteration.
+                    if iota_done == 0 && reduced == 0 {
+                        let rec_nd_e: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
+                        let ind_name_e: u64 = rec_nd_e.parent;
+                        let ind_str_e: String = name_to_string(env.names, ind_name_e);
+                        let ind_lk_e: DeclLookup = env_lookup(env, ind_str_e);
+                        if ind_lk_e.found > 0 {
+                          if ind_lk_e.kind == 5 {
+                            let e_ind_idx: u64 = ind_lk_e.val;
+                            if env.ind_ctor_count[e_ind_idx] == 1 {
+                              if ni == 0 {
+                                let cs_e: u64 = env.ind_ctor_start[e_ind_idx];
+                                let nf_e: u64 = env.ind_ctor_num_fields[cs_e];
+                                if nf_e > 0 {
+                                  let rs_e: u64 = env.rec_rule_start[rec_idx];
+                                  let ctor_name_e: u64 = env.rec_rule_ctors[rs_e];
+                                  let ind_nlp_e: u64 = ind_lk_e.level_params.len();
+                                  let rec_nlp_e: u64 = lookup.level_params.len();
+                                  let mut ctor_levels_e: Vec<u64> = Vec::new();
+                                  let mut cli_e: u64 = rec_nlp_e - ind_nlp_e;
+                                  while cli_e < rec_nlp_e {
+                                      if cli_e < levels.len() {
+                                          ctor_levels_e.push(levels[cli_e]);
+                                      }
+                                      cli_e = cli_e + 1;
+                                  }
+                                  let mut canon_name_e: u64 = ind_name_e;
+                                  if ind_name_e < env.proj_name_canon.len() {
+                                      canon_name_e = env.proj_name_canon[ind_name_e];
+                                  }
+                                  let mut ctor_app_e: u64 = expr_add_const(env.exprs, ctor_name_e, ctor_levels_e);
+                                  let mut pei_e: u64 = 0;
+                                  while pei_e < np {
+                                      ctor_app_e = expr_add_app(env.exprs, ctor_app_e, args[args.len() - 1 - pei_e]);
+                                      pei_e = pei_e + 1;
+                                  }
+                                  let mut fi_e: u64 = 0;
+                                  while fi_e < nf_e {
+                                      let proj_e: u64 = expr_add_proj(env.exprs, canon_name_e, fi_e, major);
+                                      ctor_app_e = expr_add_app(env.exprs, ctor_app_e, proj_e);
+                                      fi_e = fi_e + 1;
+                                  }
+                                  let mut new_rec_e: u64 = expr_add_const(env.exprs, name_idx, levels);
+                                  let major_rev_pos_e: u64 = args.len() - 1 - major_idx;
+                                  let mut qi_e: u64 = args.len();
+                                  while qi_e > 0 {
+                                      qi_e = qi_e - 1;
+                                      let arg_use_e: u64 = if qi_e == major_rev_pos_e { ctor_app_e } else { args[qi_e] };
+                                      new_rec_e = expr_add_app(env.exprs, new_rec_e, arg_use_e);
+                                  }
+                                  cur = new_rec_e;
+                                  reduced = 1;
+                                }
+                              }
+                            }
+                          }
+                        }
+                    }
                     // Convert stuck rec on single-constructor struct with simple field-selector minor → Proj
                     // Uses proj_name_canon to match lean4export's naming (e.g., PProd for Prod)
                     if iota_done == 0 && reduced == 0 {
