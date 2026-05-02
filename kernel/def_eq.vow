@@ -427,10 +427,12 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
     if lam_count == nf && body < env.exprs.tags.len() && env.exprs.tags[body] == 0 {
         let expected_bvar: u64 = nf - 1 - proj_idx;
         if env.exprs.f1[body] == expected_bvar {
+            env.cnt_dfull_projrec = env.cnt_dfull_projrec + 1;
             return is_def_eq_full(env, major, proj_expr);
         }
     }
     // General case: apply minor to Proj fields of major, check result =?= Proj
+    env.cnt_dfull_projrec = env.cnt_dfull_projrec + 1;
     if is_def_eq_full(env, major, proj_expr) > 0 {
         let mut applied: u64 = minor_w;
         let mut fi: u64 = 0;
@@ -442,6 +444,7 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
         let applied_w: u64 = whnf(env, applied);
         let proj_node: u64 = expr_add_proj(env.exprs, struct_name, proj_idx, proj_expr);
         let proj_w: u64 = whnf(env, proj_node);
+        env.cnt_dfull_projrec = env.cnt_dfull_projrec + 1;
         if is_def_eq_full(env, applied_w, proj_w) > 0 {
             return 1;
         }
@@ -514,6 +517,7 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     if w1 == w2 { return 1; }
     env.kernel_fuel = env.kernel_fuel + 1;
     if env.kernel_fuel > 5000000 { return 0; }
+    env.cnt_is_def_eq_full = env.cnt_is_def_eq_full + 1;
     env.def_eq_depth = env.def_eq_depth + 1;
     if env.def_eq_depth > 5000 {
         env.def_eq_depth = env.def_eq_depth - 1;
@@ -528,12 +532,15 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
 // Returns: 1 = equal, 0 = not equal, 2 = pushed App sub-pairs onto stack (continue)
 fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r: Vec<u64>) -> u64 {
     if e1 == e2 { return 1; }
+    env.cnt_is_def_eq_one = env.cnt_is_def_eq_one + 1;
     // Iterative lazy delta loop for this pair
     let mut cur1: u64 = e1;
     let mut cur2: u64 = e2;
     let mut delta_fuel: u64 = 10000;
     while delta_fuel > 0 {
         delta_fuel = delta_fuel - 1;
+        env.cnt_lazy_delta_iter = env.cnt_lazy_delta_iter + 1;
+        env.cnt_whnf_core_nodelta = env.cnt_whnf_core_nodelta + 2;
         let w1: u64 = whnf_core(env, cur1, 0);
         let w2: u64 = whnf_core(env, cur2, 0);
         if w1 == w2 { return 1; }
@@ -564,7 +571,11 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r:
                                 }
                                 ai = ai + 1;
                             }
-                            if all_ok > 0 { return 1; }
+                            if all_ok > 0 {
+                                env.cnt_cong_hit = env.cnt_cong_hit + 1;
+                                return 1;
+                            }
+                            env.cnt_cong_fallthrough = env.cnt_cong_fallthrough + 1;
                             // Congruence failed — fall through to lazy delta
                         }
                     }
@@ -596,6 +607,7 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r:
         }
         if d1 == 0 && d2 == 0 {
             // Both settled — fall back to full-WHNF structural check
+            env.cnt_dfull_leaf = env.cnt_dfull_leaf + 1;
             return is_def_eq_full(env, w1, w2);
         }
         if d1 > 0 && d2 == 0 { cur1 = unfold_def_head(env, w1); cur2 = w2; }
@@ -660,16 +672,41 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             structural_done = 1;
         }
         if t1 == 3 {
-            let app_fn_eq: u64 = is_def_eq_full(env, env.exprs.f1[w1], env.exprs.f1[w2]);
-            if app_fn_eq > 0 {
-                let app_arg_eq: u64 = is_def_eq_full(env, env.exprs.f2[w1], env.exprs.f2[w2]);
-                if app_arg_eq > 0 {
-                    return 1;
+            env.cnt_dfull_app = env.cnt_dfull_app + 2;
+            // Mirror Lean 4 type_checker.cpp:is_def_eq_app — flatten both spines,
+            // compare head once and args linearly. Single-level peel here was
+            // O(2^N) for an N-arg spine because is_def_eq_full(fn, fn') re-enters
+            // this branch on the inner app at every level (issue #3).
+            let mut head1: u64 = w1;
+            let mut head2: u64 = w2;
+            let mut as1: Vec<u64> = Vec::new();
+            let mut as2: Vec<u64> = Vec::new();
+            while head1 < env.exprs.tags.len() && env.exprs.tags[head1] == 3 {
+                as1.push(env.exprs.f2[head1]);
+                head1 = env.exprs.f1[head1];
+            }
+            while head2 < env.exprs.tags.len() && env.exprs.tags[head2] == 3 {
+                as2.push(env.exprs.f2[head2]);
+                head2 = env.exprs.f1[head2];
+            }
+            if as1.len() == as2.len() {
+                if is_def_eq_full(env, head1, head2) > 0 {
+                    let mut all_ok: u64 = 1;
+                    let mut ai: u64 = 0;
+                    while ai < as1.len() {
+                        if is_def_eq_full(env, as1[ai], as2[ai]) == 0 {
+                            all_ok = 0;
+                            ai = as1.len();
+                        }
+                        ai = ai + 1;
+                    }
+                    if all_ok > 0 { return 1; }
                 }
             }
             structural_done = 1;
         }
         if t1 == 4 || t1 == 5 {
+            env.cnt_dfull_lamforall = env.cnt_dfull_lamforall + 2;
             let ty1: u64 = env.exprs.f2[w1];
             let ty2: u64 = env.exprs.f2[w2];
             let body1: u64 = env.exprs.f3[w1];
@@ -707,6 +744,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                     }
                 }
                 if proj_ok > 0 {
+                    env.cnt_dfull_proj = env.cnt_dfull_proj + 1;
                     if is_def_eq_full(env, env.exprs.f3[w1], env.exprs.f3[w2]) > 0 { return 1; }
                 }
             }
@@ -743,6 +781,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
 
     if t1 != t2 {
         if t1 == 4 {
+            env.cnt_dfull_etaexpand = env.cnt_dfull_etaexpand + 1;
             let lam_ty: u64 = env.exprs.f2[w1];
             let lam_body: u64 = env.exprs.f3[w1];
             let local_id: u64 = env.next_local_id;
@@ -753,6 +792,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             return is_def_eq_full(env, ob1, ob2);
         }
         if t2 == 4 {
+            env.cnt_dfull_etaexpand = env.cnt_dfull_etaexpand + 1;
             let lam_ty: u64 = env.exprs.f2[w2];
             let lam_body: u64 = env.exprs.f3[w2];
             let local_id: u64 = env.next_local_id;
@@ -773,8 +813,11 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                 let pi_sort: u64 = ensure_sort(env, pi_ty_ty);
                 if is_err(pi_sort) == 0 && is_level_zero(env, pi_sort) > 0 {
                     let pi_ty2: u64 = infer(env, w2);
-                    if is_err(pi_ty2) == 0 && is_def_eq_full(env, pi_ty, pi_ty2) > 0 {
-                        return 1;
+                    if is_err(pi_ty2) == 0 {
+                        env.cnt_dfull_proofirrel = env.cnt_dfull_proofirrel + 1;
+                        if is_def_eq_full(env, pi_ty, pi_ty2) > 0 {
+                            return 1;
+                        }
                     }
                 }
             }
@@ -800,22 +843,47 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                 if eta_cc == 1 && eta_ni == 0 {
                     let eta_cs: u64 = env.ind_ctor_start[eta_ind_idx];
                     let eta_nf: u64 = env.ind_ctor_num_fields[eta_cs];
+                    // Unit-like (0-field ctor): Lean 4 is_def_eq_unit_like — always safe,
+                    // no projection cycle possible.
                     if eta_nf == 0 {
                         return 1;
                     }
-                    let mut eta_ok: u64 = 1;
-                    let mut efi: u64 = 0;
-                    while efi < eta_nf {
-                        let p1: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w1);
-                        let p2: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w2);
-                        if is_def_eq_full(env, p1, p2) == 0 {
-                            eta_ok = 0;
-                            efi = eta_nf;
-                        }
-                        efi = efi + 1;
+                    // Field-projection eta-struct: mirror Lean 4 try_eta_struct_core by
+                    // requiring at least one side to have a constructor head. Without this,
+                    // Proj(.,w1) =?= Proj(.,w2) feeds back through the Proj-Proj branch into
+                    // is_def_eq_full(w1,w2), creating a kernel_fuel-bounded cycle (issue #3).
+                    let mut w1_is_ctor: u64 = 0;
+                    let mut w2_is_ctor: u64 = 0;
+                    let mut sh1: u64 = w1;
+                    while sh1 < env.exprs.tags.len() && env.exprs.tags[sh1] == 3 { sh1 = env.exprs.f1[sh1]; }
+                    if sh1 < env.exprs.tags.len() && env.exprs.tags[sh1] == 2 {
+                        let n1: String = name_to_string(env.names, env.exprs.f1[sh1]);
+                        let lk1: DeclLookup = env_lookup(env, n1);
+                        if lk1.found > 0 && lk1.kind == 6 { w1_is_ctor = 1; }
                     }
-                    if eta_ok > 0 {
-                        return 1;
+                    let mut sh2: u64 = w2;
+                    while sh2 < env.exprs.tags.len() && env.exprs.tags[sh2] == 3 { sh2 = env.exprs.f1[sh2]; }
+                    if sh2 < env.exprs.tags.len() && env.exprs.tags[sh2] == 2 {
+                        let n2: String = name_to_string(env.names, env.exprs.f1[sh2]);
+                        let lk2: DeclLookup = env_lookup(env, n2);
+                        if lk2.found > 0 && lk2.kind == 6 { w2_is_ctor = 1; }
+                    }
+                    if w1_is_ctor > 0 || w2_is_ctor > 0 {
+                        let mut eta_ok: u64 = 1;
+                        let mut efi: u64 = 0;
+                        while efi < eta_nf {
+                            let p1: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w1);
+                            let p2: u64 = expr_add_proj(env.exprs, eta_name_idx, efi, w2);
+                            env.cnt_dfull_eta = env.cnt_dfull_eta + 1;
+                            if is_def_eq_full(env, p1, p2) == 0 {
+                                eta_ok = 0;
+                                efi = eta_nf;
+                            }
+                            efi = efi + 1;
+                        }
+                        if eta_ok > 0 {
+                            return 1;
+                        }
                     }
                 }
             }

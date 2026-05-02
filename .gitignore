@@ -20,3 +20,6 @@ repro/struct_field_large
 repro/struct_field_persist
 repro/vec_string_corrupt
 repro/arena_string_corrupt
+
+# Vow verifier intermediate artifacts
+.vow-verify-tmp/
