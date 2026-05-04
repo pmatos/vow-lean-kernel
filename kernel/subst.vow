@@ -169,7 +169,7 @@ pub fn subst_level_params(env: Environment, expr: u64, params: Vec<u64>, args: V
     }
     if t == 2 {
         let name: u64 = env.exprs.f1[expr];
-        let lvls: Vec<u64> = env.exprs.levels[expr];
+        let lvls: Vec<u64> = expr_get_levels(env.exprs, expr);
         let new_lvls: Vec<u64> = subst_levels(env, lvls, params, args);
         if new_lvls == lvls {
             return expr;

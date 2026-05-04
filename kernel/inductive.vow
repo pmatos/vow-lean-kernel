@@ -78,12 +78,13 @@ fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_param
     if env.exprs.tags[head] != 2 { return 1; }
     if env.exprs.f1[head] != ind_name { return 1; }
 
-    let result_levels: Vec<u64> = env.exprs.levels[head];
-    if result_levels.len() != ind_level_params.len() { return 1; }
+    let nlvl: u64 = expr_level_count(env.exprs, head);
+    if nlvl != ind_level_params.len() { return 1; }
     let mut li: u64 = 0;
-    while li < result_levels.len() {
-        if env.levels.tags[result_levels[li]] != 4 { return 1; }
-        if env.levels.f1[result_levels[li]] != ind_level_params[li] { return 1; }
+    while li < nlvl {
+        let l: u64 = expr_level_at(env.exprs, head, li);
+        if env.levels.tags[l] != 4 { return 1; }
+        if env.levels.f1[l] != ind_level_params[li] { return 1; }
         li = li + 1;
     }
 

@@ -179,7 +179,7 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
     if sty_args.len() < num_params {
         return err_val();
     }
-    let struct_levels: Vec<u64> = env.exprs.levels[sty_head];
+    let struct_levels: Vec<u64> = expr_get_levels(env.exprs, sty_head);
 
     // Prop-projection check
     let ind_ty: u64 = env.ind_type_tys[env.ind_type_start[ind_idx]];
@@ -281,7 +281,7 @@ fn infer_uncached(env: Environment, expr: u64) -> u64 {
         return expr_add_sort(env.exprs, new_level);
     }
     if t == 2 {
-        return infer_const(env, env.exprs.f1[expr], env.exprs.levels[expr]);
+        return infer_const(env, env.exprs.f1[expr], expr_get_levels(env.exprs, expr));
     }
     if t == 3 {
         return infer_app(env, env.exprs.f1[expr], env.exprs.f2[expr]);

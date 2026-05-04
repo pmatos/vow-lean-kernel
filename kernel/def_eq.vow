@@ -187,13 +187,16 @@ pub fn is_level_eq(env: Environment, l1: u64, l2: u64) -> u64 {
     return 0;
 }
 
-fn is_levels_eq(env: Environment, ls1: Vec<u64>, ls2: Vec<u64>) -> u64 {
-    if ls1.len() != ls2.len() {
+fn is_levels_eq_at(env: Environment, idx1: u64, idx2: u64) -> u64 {
+    let n: u64 = env.exprs.level_len[idx1];
+    if env.exprs.level_len[idx2] != n {
         return 0;
     }
+    let s1: u64 = env.exprs.level_start[idx1];
+    let s2: u64 = env.exprs.level_start[idx2];
     let mut i: u64 = 0;
-    while i < ls1.len() {
-        if is_level_eq(env, ls1[i], ls2[i]) == 0 {
+    while i < n {
+        if is_level_eq(env, env.exprs.level_pool[s1 + i], env.exprs.level_pool[s2 + i]) == 0 {
             return 0;
         }
         i = i + 1;
@@ -274,7 +277,7 @@ fn unfold_def_head(env: Environment, e: u64) -> u64 {
     }
     if head >= env.exprs.tags.len() || env.exprs.tags[head] != 2 { return e; }
     let name_str: String = name_to_string(env.names, env.exprs.f1[head]);
-    let levels: Vec<u64> = env.exprs.levels[head];
+    let levels: Vec<u64> = expr_get_levels(env.exprs, head);
     let lk: DeclLookup = env_lookup(env, name_str);
     if lk.found == 0 { return e; }
     if lk.kind != 1 {
@@ -310,7 +313,7 @@ fn whnf_structural_eq(env: Environment, e1: u64, e2: u64) -> u64 {
             let s2: String = name_to_string(env.names, env.exprs.f1[w2]);
             if str_eq(s1, s2) > 0 { nm = 1; }
         }
-        if nm > 0 { return is_levels_eq(env, env.exprs.levels[w1], env.exprs.levels[w2]); }
+        if nm > 0 { return is_levels_eq_at(env, w1, w2); }
         return 0;
     }
     if t1 == 3 {
@@ -559,7 +562,7 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r:
             if env.exprs.tags[ch1] == 2 && env.exprs.tags[ch2] == 2 {
                 if env.exprs.f1[ch1] == env.exprs.f1[ch2] {
                     if a1.len() == a2.len() {
-                        if is_levels_eq(env, env.exprs.levels[ch1], env.exprs.levels[ch2]) > 0 {
+                        if is_levels_eq_at(env, ch1, ch2) > 0 {
                             // Speculative congruence: try comparing args directly
                             // If any fails, fall through to lazy delta (don't commit)
                             let mut all_ok: u64 = 1;
@@ -667,7 +670,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                 if str_eq(n1s, n2s) > 0 { name_match = 1; }
             }
             if name_match > 0 {
-                if is_levels_eq(env, env.exprs.levels[w1], env.exprs.levels[w2]) > 0 { return 1; }
+                if is_levels_eq_at(env, w1, w2) > 0 { return 1; }
             }
             structural_done = 1;
         }
