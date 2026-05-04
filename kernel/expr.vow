@@ -332,8 +332,10 @@ pub fn expr_arena_clear_caches(arena: ExprArena) {
 }
 
 pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
-    let mut pool_cut: u64 = 0;
-    if size > 0 && size <= arena.level_start.len() {
+    let mut pool_cut: u64 = arena.level_pool.len();
+    if size == 0 {
+        pool_cut = 0;
+    } else if size <= arena.level_start.len() {
         pool_cut = arena.level_start[size - 1] + arena.level_len[size - 1];
     }
     while arena.tags.len() > size { arena.tags.pop(); }
