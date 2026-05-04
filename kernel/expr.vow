@@ -43,14 +43,19 @@ pub struct ExprArena {
     lbr: Vec<u64>,
     infer_cache: Vec<u64>,
     whnf_cache: Vec<u64>,
-    hash_buckets: Vec<Vec<u64>>,
+    bucket_head: Vec<u64>,
+    hash_next: Vec<u64>,
+}
+
+fn chain_nil() -> u64 {
+    return 4294967295;
 }
 
 pub fn expr_arena_new() -> ExprArena {
-    let mut buckets: Vec<Vec<u64>> = Vec::new();
+    let mut heads: Vec<u64> = Vec::new();
     let mut bi: u64 = 0;
     while bi < 65536 {
-        buckets.push(Vec::new());
+        heads.push(chain_nil());
         bi = bi + 1;
     }
     return ExprArena {
@@ -70,7 +75,8 @@ pub fn expr_arena_new() -> ExprArena {
         lbr: Vec::new(),
         infer_cache: Vec::new(),
         whnf_cache: Vec::new(),
-        hash_buckets: buckets,
+        bucket_head: heads,
+        hash_next: Vec::new(),
     };
 }
 
@@ -92,15 +98,13 @@ fn str_eq_expr(a: String, b: String) -> u64 {
 
 fn find_or_push(arena: ExprArena, entry: ExprData, tag: u64, pf1: u64, pf2: u64, pf3: u64, pf4: u64, pbi: u64, pnondep: u64, plevels: Vec<u64>, plit_kind: u64, plit_val: String, plbr: u64) -> u64 {
     let h: u64 = expr_hash(tag, pf1, pf2, pf3, pf4, pbi, pnondep, plit_kind);
-    let bucket: Vec<u64> = arena.hash_buckets[h];
     let pn: u64 = plevels.len();
-    let mut i: u64 = 0;
-    while i < bucket.len() {
-        let idx: u64 = bucket[i];
-        if idx < arena.tags.len() {
-            if arena.tags[idx] == tag && arena.f1[idx] == pf1 && arena.f2[idx] == pf2 && arena.f3[idx] == pf3 && arena.f4[idx] == pf4 && arena.bi[idx] == pbi && arena.nondep[idx] == pnondep && arena.lit_kind[idx] == plit_kind {
-                if arena.level_len[idx] == pn {
-                    let s: u64 = arena.level_start[idx];
+    let mut cur: u64 = arena.bucket_head[h];
+    while cur != chain_nil() {
+        if cur < arena.tags.len() {
+            if arena.tags[cur] == tag && arena.f1[cur] == pf1 && arena.f2[cur] == pf2 && arena.f3[cur] == pf3 && arena.f4[cur] == pf4 && arena.bi[cur] == pbi && arena.nondep[cur] == pnondep && arena.lit_kind[cur] == plit_kind {
+                if arena.level_len[cur] == pn {
+                    let s: u64 = arena.level_start[cur];
                     let mut j: u64 = 0;
                     let mut all_eq: u64 = 1;
                     while j < pn {
@@ -108,14 +112,14 @@ fn find_or_push(arena: ExprArena, entry: ExprData, tag: u64, pf1: u64, pf2: u64,
                         j = j + 1;
                     }
                     if all_eq > 0 {
-                        if tag != 7 || str_eq_expr(arena.lit_val[idx], plit_val) > 0 {
-                            return idx;
+                        if tag != 7 || str_eq_expr(arena.lit_val[cur], plit_val) > 0 {
+                            return cur;
                         }
                     }
                 }
             }
         }
-        i = i + 1;
+        cur = arena.hash_next[cur];
     }
     let idx: u64 = arena.tags.len();
     arena.entries.push(entry);
@@ -139,7 +143,8 @@ fn find_or_push(arena: ExprArena, entry: ExprData, tag: u64, pf1: u64, pf2: u64,
     arena.lbr.push(plbr);
     arena.infer_cache.push(4294967294);
     arena.whnf_cache.push(4294967294);
-    arena.hash_buckets[h].push(idx);
+    arena.hash_next.push(arena.bucket_head[h]);
+    arena.bucket_head[h] = idx;
     return idx;
 }
 
@@ -165,6 +170,7 @@ fn push_flat_no_dedup(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64, 
     arena.lbr.push(plbr);
     arena.infer_cache.push(4294967294);
     arena.whnf_cache.push(4294967294);
+    arena.hash_next.push(chain_nil());
 }
 
 pub fn expr_arena_add(arena: ExprArena, data: ExprData) -> u64 {
@@ -332,12 +338,28 @@ pub fn expr_arena_clear_caches(arena: ExprArena) {
 }
 
 pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
+    // Compute pool_cut while level_start/level_len are still intact.
     let mut pool_cut: u64 = arena.level_pool.len();
     if size == 0 {
         pool_cut = 0;
     } else if size <= arena.level_start.len() {
         pool_cut = arena.level_start[size - 1] + arena.level_len[size - 1];
     }
+    // Phase A: advance each bucket head past entries >= size.
+    // Must run BEFORE Phase B because it reads hash_next[cur] for cur >= size.
+    // Chains are in strictly decreasing index order (insert prepends), so once
+    // we cross the watermark we never need to skip again in the same chain.
+    let mut h: u64 = 0;
+    while h < arena.bucket_head.len() {
+        let mut cur: u64 = arena.bucket_head[h];
+        while cur != chain_nil() {
+            if cur < size { break; }
+            cur = arena.hash_next[cur];
+        }
+        arena.bucket_head[h] = cur;
+        h = h + 1;
+    }
+    // Phase B: shrink all parallel arrays back to the watermark.
     while arena.tags.len() > size { arena.tags.pop(); }
     while arena.f1.len() > size { arena.f1.pop(); }
     while arena.f2.len() > size { arena.f2.pop(); }
@@ -353,11 +375,6 @@ pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
     while arena.lbr.len() > size { arena.lbr.pop(); }
     while arena.infer_cache.len() > size { arena.infer_cache.pop(); }
     while arena.whnf_cache.len() > size { arena.whnf_cache.pop(); }
+    while arena.hash_next.len() > size { arena.hash_next.pop(); }
     while arena.entries.len() > size { arena.entries.pop(); }
-    // Clear hash buckets to remove stale refs to truncated entries
-    let mut bi: u64 = 0;
-    while bi < arena.hash_buckets.len() {
-        while arena.hash_buckets[bi].len() > 0 { arena.hash_buckets[bi].pop(); }
-        bi = bi + 1;
-    }
 }
