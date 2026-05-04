@@ -33,3 +33,8 @@ Create a YAML file in `checkers/` following the `schemas/checker.json` spec. It 
 - Always run `vowc` under `ulimit` to avoid memory explosion (e.g., `ulimit -v 4194304 && vowc ...`).
 - Always run compiled Vow binaries (e.g., `lean_checker`) under `ulimit` too — Vow-compiled code is also prone to memory issues (e.g., `ulimit -v 8388608 && ./lean_checker ...`). Use 8GB (8388608) for deeper proof terms like grind-ring-5; 4GB may be insufficient.
 - Bugs or issues found in Vow during development should be filed directly to the Vow issue tracker: https://github.com/pmatos/vow-lang/issues
+
+## Input Streaming
+
+- The checker streams stdin line-by-line via the Vow builtin `stdin_read_line()` (returns `""` at EOF). Requires a `vowc` build that exposes this builtin.
+- The file-argument path (`./lean_checker file.ndjson`) is still buffered via `fs_read` pending vow-lang/vow#280. Until that lands, prefer stdin redirection (`./lean_checker < file.ndjson`) for inputs >100 MB.

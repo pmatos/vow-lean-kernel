@@ -112,21 +112,25 @@ fn debug_walk(env: Environment, expr: u64, depth: u64) [io] {
 
 fn main() -> i32 [io, read] {
     let args: Vec<String> = args();
-    let input: String = if args.len() > 1u64 {
-        fs_read(args[1u64])
-    } else {
-        stdin_read()
-    };
-
-    let lines: Vec<String> = split_lines(input);
     let env: Environment = env_new();
 
-    let mut i: u64 = 0;
-    while i < lines.len() {
-        if lines[i].len() > 0 {
-            parse_line(env, lines[i]);
+    if args.len() > 1u64 {
+        // TODO(vow#280): swap fs_read for fs_open + fs_read_line stream.
+        let input: String = fs_read(args[1u64]);
+        let lines: Vec<String> = split_lines(input);
+        let mut i: u64 = 0;
+        while i < lines.len() {
+            if lines[i].len() > 0 {
+                parse_line(env, lines[i]);
+            }
+            i = i + 1;
         }
-        i = i + 1;
+    } else {
+        let mut line: String = stdin_read_line();
+        while line.len() > 0 {
+            parse_line(env, line);
+            line = stdin_read_line();
+        }
     }
 
     if env.dup_error > 0 {
