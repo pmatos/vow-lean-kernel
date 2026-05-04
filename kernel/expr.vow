@@ -35,7 +35,9 @@ pub struct ExprArena {
     f4: Vec<u64>,
     bi: Vec<u64>,
     nondep: Vec<u64>,
-    levels: Vec<Vec<u64>>,
+    level_pool: Vec<u64>,
+    level_start: Vec<u64>,
+    level_len: Vec<u64>,
     lit_kind: Vec<u64>,
     lit_val: Vec<String>,
     lbr: Vec<u64>,
@@ -60,7 +62,9 @@ pub fn expr_arena_new() -> ExprArena {
         f4: Vec::new(),
         bi: Vec::new(),
         nondep: Vec::new(),
-        levels: Vec::new(),
+        level_pool: Vec::new(),
+        level_start: Vec::new(),
+        level_len: Vec::new(),
         lit_kind: Vec::new(),
         lit_val: Vec::new(),
         lbr: Vec::new(),
@@ -86,27 +90,27 @@ fn str_eq_expr(a: String, b: String) -> u64 {
     return 1;
 }
 
-fn vecs_eq(a: Vec<u64>, b: Vec<u64>) -> u64 {
-    if a.len() != b.len() { return 0; }
-    let mut i: u64 = 0;
-    while i < a.len() {
-        if a[i] != b[i] { return 0; }
-        i = i + 1;
-    }
-    return 1;
-}
-
 fn find_or_push(arena: ExprArena, entry: ExprData, tag: u64, pf1: u64, pf2: u64, pf3: u64, pf4: u64, pbi: u64, pnondep: u64, plevels: Vec<u64>, plit_kind: u64, plit_val: String, plbr: u64) -> u64 {
     let h: u64 = expr_hash(tag, pf1, pf2, pf3, pf4, pbi, pnondep, plit_kind);
     let bucket: Vec<u64> = arena.hash_buckets[h];
+    let pn: u64 = plevels.len();
     let mut i: u64 = 0;
     while i < bucket.len() {
         let idx: u64 = bucket[i];
         if idx < arena.tags.len() {
             if arena.tags[idx] == tag && arena.f1[idx] == pf1 && arena.f2[idx] == pf2 && arena.f3[idx] == pf3 && arena.f4[idx] == pf4 && arena.bi[idx] == pbi && arena.nondep[idx] == pnondep && arena.lit_kind[idx] == plit_kind {
-                if vecs_eq(arena.levels[idx], plevels) > 0 {
-                    if tag != 7 || str_eq_expr(arena.lit_val[idx], plit_val) > 0 {
-                        return idx;
+                if arena.level_len[idx] == pn {
+                    let s: u64 = arena.level_start[idx];
+                    let mut j: u64 = 0;
+                    let mut all_eq: u64 = 1;
+                    while j < pn {
+                        if arena.level_pool[s + j] != plevels[j] { all_eq = 0; j = pn; }
+                        j = j + 1;
+                    }
+                    if all_eq > 0 {
+                        if tag != 7 || str_eq_expr(arena.lit_val[idx], plit_val) > 0 {
+                            return idx;
+                        }
                     }
                 }
             }
@@ -122,7 +126,14 @@ fn find_or_push(arena: ExprArena, entry: ExprData, tag: u64, pf1: u64, pf2: u64,
     arena.f4.push(pf4);
     arena.bi.push(pbi);
     arena.nondep.push(pnondep);
-    arena.levels.push(plevels);
+    let new_start: u64 = arena.level_pool.len();
+    let mut k: u64 = 0;
+    while k < pn {
+        arena.level_pool.push(plevels[k]);
+        k = k + 1;
+    }
+    arena.level_start.push(new_start);
+    arena.level_len.push(pn);
     arena.lit_kind.push(plit_kind);
     arena.lit_val.push(plit_val);
     arena.lbr.push(plbr);
@@ -140,7 +151,15 @@ fn push_flat_no_dedup(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64, 
     arena.f4.push(pf4);
     arena.bi.push(pbi);
     arena.nondep.push(pnondep);
-    arena.levels.push(plevels);
+    let pn: u64 = plevels.len();
+    let new_start: u64 = arena.level_pool.len();
+    let mut k: u64 = 0;
+    while k < pn {
+        arena.level_pool.push(plevels[k]);
+        k = k + 1;
+    }
+    arena.level_start.push(new_start);
+    arena.level_len.push(pn);
     arena.lit_kind.push(plit_kind);
     arena.lit_val.push(plit_val);
     arena.lbr.push(plbr);
@@ -279,6 +298,26 @@ pub fn expr_add_local(arena: ExprArena, id: u64, ty: u64) -> u64 {
     return i;
 }
 
+pub fn expr_level_count(arena: ExprArena, idx: u64) -> u64 {
+    return arena.level_len[idx];
+}
+
+pub fn expr_level_at(arena: ExprArena, idx: u64, i: u64) -> u64 {
+    return arena.level_pool[arena.level_start[idx] + i];
+}
+
+pub fn expr_get_levels(arena: ExprArena, idx: u64) -> Vec<u64> {
+    let n: u64 = arena.level_len[idx];
+    let s: u64 = arena.level_start[idx];
+    let mut out: Vec<u64> = Vec::new();
+    let mut i: u64 = 0;
+    while i < n {
+        out.push(arena.level_pool[s + i]);
+        i = i + 1;
+    }
+    return out;
+}
+
 pub fn expr_arena_clear_caches(arena: ExprArena) {
     let mut i: u64 = 0;
     while i < arena.infer_cache.len() {
@@ -293,6 +332,12 @@ pub fn expr_arena_clear_caches(arena: ExprArena) {
 }
 
 pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
+    let mut pool_cut: u64 = arena.level_pool.len();
+    if size == 0 {
+        pool_cut = 0;
+    } else if size <= arena.level_start.len() {
+        pool_cut = arena.level_start[size - 1] + arena.level_len[size - 1];
+    }
     while arena.tags.len() > size { arena.tags.pop(); }
     while arena.f1.len() > size { arena.f1.pop(); }
     while arena.f2.len() > size { arena.f2.pop(); }
@@ -300,7 +345,9 @@ pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
     while arena.f4.len() > size { arena.f4.pop(); }
     while arena.bi.len() > size { arena.bi.pop(); }
     while arena.nondep.len() > size { arena.nondep.pop(); }
-    while arena.levels.len() > size { arena.levels.pop(); }
+    while arena.level_start.len() > size { arena.level_start.pop(); }
+    while arena.level_len.len() > size { arena.level_len.pop(); }
+    while arena.level_pool.len() > pool_cut { arena.level_pool.pop(); }
     while arena.lit_kind.len() > size { arena.lit_kind.pop(); }
     while arena.lit_val.len() > size { arena.lit_val.pop(); }
     while arena.lbr.len() > size { arena.lbr.pop(); }
