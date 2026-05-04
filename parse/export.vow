@@ -555,9 +555,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     env.ind_rec_start.push(rec_start);
     env.ind_rec_count.push(recs.len());
 
-    let decl: InductiveDecl = InductiveDecl { types: types, ctors: ctors, recs: recs };
-    env.ind_decls.push(decl);
-    let ind_idx: u64 = env.ind_decls.len() - 1;
+    let ind_idx: u64 = env.ind_type_start.len() - 1;
 
     let mut name_str: String = String::from("[inductive]");
     let mut ind_ty: u64 = 0;
