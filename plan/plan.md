@@ -51,7 +51,7 @@ These are the fundamental types the checker must define. All are concrete — no
 
 Vow does not support recursive enum types (no `Box` or heap-allocated indirection). Instead, we use an **arena-based encoding**: names, levels, and expressions are stored in flat `Vec` arrays, referenced by `u64` index. This is a natural fit because the lean4export NDJSON format already assigns integer IDs to all names, levels, and expressions.
 
-Each arena stores enum variants with `u64` indices pointing to other entries:
+Name and level arenas store enum variants with `u64` indices pointing to other entries. Expression storage uses the same arena-index idea, but stores compact parallel arrays (`tags`, `f1`..`f4`, binder flags, level slices, literal payloads) rather than retaining a duplicate enum payload for every expression:
 
 ```
 enum NameData {
@@ -68,23 +68,9 @@ enum LevelData {
     Param { name: u64 },
 }
 
-enum ExprData {
-    BVar { idx: u64 },
-    Sort { level: u64 },
-    Const { name: u64, levels: Vec<u64> },
-    App { fun: u64, arg: u64 },
-    Lambda { binder_name: u64, ty: u64, body: u64 },
-    Forall { binder_name: u64, ty: u64, body: u64 },
-    Let { binder_name: u64, ty: u64, val: u64, body: u64 },
-    Lit { val: LitData },
-    Proj { struct_name: u64, idx: u64, expr: u64 },
-    MData { expr: u64 },
-}
-
-enum LitData {
-    Nat { val: u64 },
-    Str { val: String },
-}
+ExprArena tags:
+0 BVar, 1 Sort, 2 Const, 3 App, 4 Lambda, 5 Forall,
+6 Let, 7 Lit, 8 Proj, 9 MData, 10 Local
 ```
 
 The arenas themselves:
@@ -92,7 +78,7 @@ The arenas themselves:
 ```
 struct NameArena { entries: Vec<NameData> }
 struct LevelArena { entries: Vec<LevelData> }
-struct ExprArena { entries: Vec<ExprData> }
+struct ExprArena { tags: Vec<u64>, f1: Vec<u64>, f2: Vec<u64>, ... }
 ```
 
 Key operations (substitution, free variable checking, WHNF) allocate new entries in the arena and return new indices. The arena grows monotonically — no deallocation during checking.
@@ -113,7 +99,7 @@ The `imax` function has special semantics: `imax a b = 0` when `b = 0`, otherwis
 
 ### 2.4 Expressions
 
-The core term language. ~10 variants (see `ExprData` above).
+The core term language. ~10 variants encoded by expression tags and parallel payload arrays.
 
 `MData` (metadata) expressions wrap another expression. The checker should handle these by unwrapping to the inner expression.
 
@@ -277,7 +263,7 @@ Each phase corresponds to a subset of the arena tutorial tests. The test numbers
 
 **Delivers:**
 - Arena types: `NameArena`, `LevelArena`, `ExprArena`
-- `NameData`, `LevelData`, `ExprData`, `LitData` enums
+- `NameData`, `LevelData`, and compact expression tag/field storage
 - NDJSON line-by-line parser populating arenas from `in`/`il`/`ie` entries
 - Declaration parsing (`def`, `ax`, `thm`, `opaque`, `ind`, `ctor`, `rec`, `quot`)
 - `MData` expression handling (store and unwrap)
@@ -538,7 +524,7 @@ parse/
 kernel/
 ├── name.vow             // NameData enum, NameArena, stringification
 ├── level.vow            // LevelData enum, LevelArena, normalization, leq, subst
-├── expr.vow             // ExprData enum, ExprArena, substitution, free vars
+├── expr.vow             // ExprArena tag/field storage, substitution, free vars
 ├── env.vow              // Environment struct, declaration storage, lookup
 ├── infer.vow            // Type inference
 ├── def_eq.vow           // Definitional equality
@@ -567,8 +553,8 @@ The kernel functions are ideal vow block targets:
 
 ```
 fn infer(env: Environment, ctx: Vec<u64>, expr: u64) -> Result<u64, TypeError> vow {
-    requires: expr < env.exprs.entries.len()
-    ensures:  result == Result::Err(_) || result.unwrap() < env.exprs.entries.len()
+    requires: expr < env.exprs.tags.len()
+    ensures:  result == Result::Err(_) || result.unwrap() < env.exprs.tags.len()
 } {
     ...
 }
@@ -582,17 +568,17 @@ fn is_def_eq(env: Environment, e1: u64, e2: u64) -> bool vow {
 
 ### No traits needed
 
-Where Nanoda uses Rust traits (e.g., for expression visitors), Vow uses concrete functions with pattern matching on enum variants:
+Where Nanoda uses Rust traits (e.g., for expression visitors), Vow uses concrete functions that branch on expression tags:
 
 ```
 fn expr_has_free_var(env: Environment, expr_id: u64, var_idx: u64) -> bool {
-    match env.exprs.entries[expr_id] {
-        ExprData::BVar { idx } => idx == var_idx,
-        ExprData::App { fun, arg } => {
-            expr_has_free_var(env, fun, var_idx) || expr_has_free_var(env, arg, var_idx)
-        },
-        ...
+    let tag: u64 = env.exprs.tags[expr_id];
+    if tag == 0 { return env.exprs.f1[expr_id] == var_idx; }
+    if tag == 3 {
+        return expr_has_free_var(env, env.exprs.f1[expr_id], var_idx)
+            || expr_has_free_var(env, env.exprs.f2[expr_id], var_idx);
     }
+    ...
 }
 ```
 
