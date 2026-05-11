@@ -109,6 +109,10 @@ fn debug_walk(env: Environment, expr: u64, depth: u64) [io] {
     }
 }
 
+fn exit_internal_error() -> i32 {
+    return 3i32;
+}
+
 fn main() -> i32 [io, read] {
     let args: Vec<String> = args();
     let env: Environment = env_new();
@@ -117,7 +121,7 @@ fn main() -> i32 [io, read] {
         let h: i64 = fs_open(args[1u64]);
         if h < 0i64 {
             eprintln_str(String::from("error: cannot open input file"));
-            return 1i32;
+            return exit_internal_error();
         }
         let mut line: String = fs_read_line(h);
         while line.len() > 0 {
@@ -128,11 +132,11 @@ fn main() -> i32 [io, read] {
         if st < 0i64 {
             fs_close(h);
             eprintln_str(String::from("error: read failed before EOF"));
-            return 1i32;
+            return exit_internal_error();
         }
         if fs_close(h) != 0i64 {
             eprintln_str(String::from("error: fs_close reported failure"));
-            return 1i32;
+            return exit_internal_error();
         }
     } else {
         let mut line: String = stdin_read_line();
@@ -143,7 +147,8 @@ fn main() -> i32 [io, read] {
     }
 
     if env.dup_error > 0 {
-        return 1i32;
+        eprintln_str(String::from("error: duplicate or invalid declaration metadata"));
+        return exit_internal_error();
     }
 
     // Normalize Proj typeNames for known lean4export cross-type pairs.

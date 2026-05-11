@@ -97,6 +97,9 @@ fn parse_name_line(env: Environment, line: String, in_pos: u64) -> bool {
     if id < env.names.entries.len() {
         return true;
     }
+    while env.names.entries.len() < id {
+        env.names.entries.push(make_name_anonymous());
+    }
 
     let str_r: FindResult = find_key(line, 0, String::from("str"));
     if str_r.found > 0 {
@@ -104,7 +107,7 @@ fn parse_name_line(env: Environment, line: String, in_pos: u64) -> bool {
         let s_r: FindResult = find_key(line, str_r.pos, String::from("str"));
         let parent: u64 = json_parse_uint(line, pre_r.pos).val;
         let field: String = json_parse_string(line, s_r.pos).val;
-        name_arena_add(env.names, make_name_str(parent, field));
+        env.names.entries.push(make_name_str(parent, field));
         return true;
     }
 
@@ -114,11 +117,11 @@ fn parse_name_line(env: Environment, line: String, in_pos: u64) -> bool {
         let i_r: FindResult = find_key(line, num_r.pos, String::from("i"));
         let parent: u64 = json_parse_uint(line, pre_r.pos).val;
         let field: u64 = json_parse_uint(line, i_r.pos).val;
-        name_arena_add(env.names, make_name_num(parent, field));
+        env.names.entries.push(make_name_num(parent, field));
         return true;
     }
 
-    name_arena_add(env.names, make_name_anonymous());
+    env.names.entries.push(make_name_anonymous());
     return true;
 }
 
@@ -169,10 +172,12 @@ fn parse_level_line(env: Environment, line: String, il_pos: u64) -> bool {
 }
 
 fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
+    let id: u64 = json_parse_uint(line, ie_pos).val;
     match json_find_key(line, 0, String::from("bvar")) {
         Option::Some(bvar_pos) => {
             let idx: u64 = json_parse_uint(line, bvar_pos).val;
-            expr_add_bvar(env.exprs, idx);
+            let actual: u64 = expr_add_bvar(env.exprs, idx);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -181,7 +186,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("sort")) {
         Option::Some(sort_pos) => {
             let level: u64 = json_parse_uint(line, sort_pos).val;
-            expr_add_sort(env.exprs, level);
+            let actual: u64 = expr_add_sort(env.exprs, level);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -191,7 +197,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
         Option::Some(const_pos) => {
             let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, const_pos, String::from("name")))).val;
             let levels: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, const_pos, String::from("us")))).vals;
-            expr_add_const(env.exprs, name, levels);
+            let actual: u64 = expr_add_const(env.exprs, name, levels);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -201,7 +208,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
         Option::Some(app_pos) => {
             let func: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, app_pos, String::from("fn")))).val;
             let arg: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, app_pos, String::from("arg")))).val;
-            expr_add_app(env.exprs, func, arg);
+            let actual: u64 = expr_add_app(env.exprs, func, arg);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -213,7 +221,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("type")))).val;
             let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, lam_pos, String::from("body")))).val;
             let bi: u64 = parse_binder_info(line, unwrap_pos(json_find_key(line, lam_pos, String::from("bi"))));
-            expr_add_lambda(env.exprs, name, ty, body, bi);
+            let actual: u64 = expr_add_lambda(env.exprs, name, ty, body, bi);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -225,7 +234,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("type")))).val;
             let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, fa_pos, String::from("body")))).val;
             let bi: u64 = parse_binder_info(line, unwrap_pos(json_find_key(line, fa_pos, String::from("bi"))));
-            expr_add_forall(env.exprs, name, ty, body, bi);
+            let actual: u64 = expr_add_forall(env.exprs, name, ty, body, bi);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -238,7 +248,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("value")))).val;
             let body: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, let_pos, String::from("body")))).val;
             let nondep: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, let_pos, String::from("nondep"))));
-            expr_add_let(env.exprs, name, ty, val, body, 0);
+            let actual: u64 = expr_add_let(env.exprs, name, ty, val, body, 0);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -249,7 +260,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
             let sname: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("typeName")))).val;
             let idx: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("idx")))).val;
             let expr: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, proj_pos, String::from("struct")))).val;
-            expr_add_proj(env.exprs, sname, idx, expr);
+            let actual: u64 = expr_add_proj(env.exprs, sname, idx, expr);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -258,7 +270,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("natVal")) {
         Option::Some(nat_pos) => {
             let val: String = json_parse_string(line, nat_pos).val;
-            expr_add_lit_nat(env.exprs, val);
+            let actual: u64 = expr_add_lit_nat(env.exprs, val);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -267,7 +280,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("strVal")) {
         Option::Some(str_pos) => {
             let val: String = json_parse_string(line, str_pos).val;
-            expr_add_lit_str(env.exprs, val);
+            let actual: u64 = expr_add_lit_str(env.exprs, val);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},
@@ -276,7 +290,8 @@ fn parse_expr_line(env: Environment, line: String, ie_pos: u64) -> bool {
     match json_find_key(line, 0, String::from("mdata")) {
         Option::Some(mdata_pos) => {
             let expr: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, mdata_pos, String::from("expr")))).val;
-            expr_add_mdata(env.exprs, expr);
+            let actual: u64 = expr_add_mdata(env.exprs, expr);
+            expr_arena_import_id(env.exprs, id, actual);
             return true;
         },
         Option::None => {},

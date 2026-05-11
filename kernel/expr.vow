@@ -144,6 +144,34 @@ fn push_flat_no_dedup(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64, 
     arena.hash_next.push(chain_nil());
 }
 
+pub fn expr_arena_import_id(arena: ExprArena, id: u64, actual: u64) {
+    while arena.tags.len() <= id {
+        arena.tags.push(arena.tags[actual]);
+        arena.f1.push(arena.f1[actual]);
+        arena.f2.push(arena.f2[actual]);
+        arena.f3.push(arena.f3[actual]);
+        arena.f4.push(arena.f4[actual]);
+        arena.bi.push(arena.bi[actual]);
+        arena.nondep.push(arena.nondep[actual]);
+        let start: u64 = arena.level_start[actual];
+        let n: u64 = arena.level_len[actual];
+        let new_start: u64 = arena.level_pool.len();
+        let mut i: u64 = 0;
+        while i < n {
+            arena.level_pool.push(arena.level_pool[start + i]);
+            i = i + 1;
+        }
+        arena.level_start.push(new_start);
+        arena.level_len.push(n);
+        arena.lit_kind.push(arena.lit_kind[actual]);
+        arena.lit_val.push(arena.lit_val[actual]);
+        arena.lbr.push(arena.lbr[actual]);
+        arena.infer_cache.push(4294967294);
+        arena.whnf_cache.push(4294967294);
+        arena.hash_next.push(chain_nil());
+    }
+}
+
 pub fn expr_add_bvar(arena: ExprArena, idx: u64) -> u64 {
     return find_or_push(arena, 0, idx, 0, 0, 0, 0, 0, Vec::new(), 0, String::from(""), idx + 1);
 }
