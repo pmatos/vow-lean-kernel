@@ -36,5 +36,8 @@ Create a YAML file in `checkers/` following the `schemas/checker.json` spec. It 
 
 ## Input Streaming
 
-- The checker streams stdin line-by-line via the Vow builtin `stdin_read_line()` (returns `""` at EOF). Requires a `vowc` build that exposes this builtin.
-- The file-argument path (`./lean_checker file.ndjson`) is still buffered via `fs_read` pending vow-lang/vow#280. Until that lands, prefer stdin redirection (`./lean_checker < file.ndjson`) for inputs >100 MB.
+- Both input paths stream line-by-line:
+  - **stdin** (`./lean_checker < file.ndjson`) — uses `stdin_read_line()` (returns `""` at EOF).
+  - **file argument** (`./lean_checker file.ndjson`) — uses `fs_open` / `fs_read_line` / `fs_status` / `fs_close`.
+- Requires a `vowc` build that exposes the streaming file builtins (vow-lang/vow#280, closed). The `vowc` at `/home/pmatos/dev/vow-lang/vow/build/vowc` is current.
+- Note: `fs_read_line` returns lines with the trailing newline included; `parse_line` is newline-tolerant, matching the long-standing stdin behavior.
