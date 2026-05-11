@@ -38,7 +38,7 @@ pub fn pretty_env_summary(env: Environment) -> String {
     append_str(result, String::from(" names, "));
     append_str(result, u64_to_string(env.levels.entries.len()));
     append_str(result, String::from(" levels, "));
-    append_str(result, u64_to_string(env.exprs.entries.len()));
+    append_str(result, u64_to_string(env.exprs.tags.len()));
     append_str(result, String::from(" exprs, "));
     append_str(result, u64_to_string(env.decls.len()));
     append_str(result, String::from(" decls"));
