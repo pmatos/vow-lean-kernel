@@ -77,6 +77,70 @@ pub fn parse_i64_lit(s: String, pos: u64) -> ParseI64Result {
     return ParseI64Result { val: v, end_pos: r.end_pos };
 }
 
+pub struct MatchQuotedResult {
+    matched: bool,
+    end_pos: u64,
+}
+
+pub fn match_quoted_string(s: String, pos: u64, target: String) -> MatchQuotedResult {
+    let mut i: u64 = pos;
+    if i >= s.len() || s.byte_at(i) != 34 {
+        return MatchQuotedResult { matched: false, end_pos: pos };
+    }
+    i = i + 1;
+    let mut j: u64 = 0;
+    let mut matched: u64 = 1;
+    while i < s.len() {
+        let b: u64 = s.byte_at(i);
+        if b == 34 {
+            let ok: bool = if matched > 0 { j == target.len() } else { false };
+            return MatchQuotedResult { matched: ok, end_pos: i + 1 };
+        }
+        let mut decoded: u64 = b;
+        if b == 92 {
+            i = i + 1;
+            if i < s.len() {
+                let esc: u64 = s.byte_at(i);
+                if esc == 110 { decoded = 10; }
+                else if esc == 116 { decoded = 9; }
+                else if esc == 114 { decoded = 13; }
+                else if esc == 34 { decoded = 34; }
+                else if esc == 92 { decoded = 92; }
+                else { decoded = esc; }
+            }
+        }
+        if matched > 0 {
+            if j >= target.len() || target.byte_at(j) != decoded {
+                matched = 0;
+            } else {
+                j = j + 1;
+            }
+        }
+        i = i + 1;
+    }
+    return MatchQuotedResult { matched: false, end_pos: i };
+}
+
+pub fn scan_quoted_string(s: String, pos: u64) -> u64 {
+    let mut i: u64 = pos;
+    if i >= s.len() || s.byte_at(i) != 34 {
+        return pos;
+    }
+    i = i + 1;
+    while i < s.len() {
+        let b: u64 = s.byte_at(i);
+        if b == 34 {
+            return i + 1;
+        }
+        if b == 92 {
+            i = i + 2;
+        } else {
+            i = i + 1;
+        }
+    }
+    return i;
+}
+
 pub fn parse_quoted_string(s: String, pos: u64) -> ParseStrResult {
     let mut i: u64 = pos;
     if i >= s.len() || s.byte_at(i) != 34 {

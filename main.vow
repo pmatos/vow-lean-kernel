@@ -1,6 +1,5 @@
 module Main
 
-use parse.strutil
 use parse.export
 use kernel.name
 use kernel.env
@@ -115,15 +114,25 @@ fn main() -> i32 [io, read] {
     let env: Environment = env_new();
 
     if args.len() > 1u64 {
-        // TODO(vow#280): swap fs_read for fs_open + fs_read_line stream.
-        let input: String = fs_read(args[1u64]);
-        let lines: Vec<String> = split_lines(input);
-        let mut i: u64 = 0;
-        while i < lines.len() {
-            if lines[i].len() > 0 {
-                parse_line(env, lines[i]);
-            }
-            i = i + 1;
+        let h: i64 = fs_open(args[1u64]);
+        if h < 0i64 {
+            eprintln_str(String::from("error: cannot open input file"));
+            return 1i32;
+        }
+        let mut line: String = fs_read_line(h);
+        while line.len() > 0 {
+            parse_line(env, line);
+            line = fs_read_line(h);
+        }
+        let st: i64 = fs_status(h);
+        if st < 0i64 {
+            fs_close(h);
+            eprintln_str(String::from("error: read failed before EOF"));
+            return 1i32;
+        }
+        if fs_close(h) != 0i64 {
+            eprintln_str(String::from("error: fs_close reported failure"));
+            return 1i32;
         }
     } else {
         let mut line: String = stdin_read_line();

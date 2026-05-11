@@ -14,8 +14,7 @@ pub fn json_skip_value(s: String, pos: u64) -> u64 {
     }
     let b: u64 = s.byte_at(p);
     if b == 34 {
-        let r: ParseStrResult = parse_quoted_string(s, p);
-        return r.end_pos;
+        return scan_quoted_string(s, p);
     }
     if b == 123 {
         let mut i: u64 = p + 1;
@@ -23,8 +22,7 @@ pub fn json_skip_value(s: String, pos: u64) -> u64 {
         while i < s.len() && depth > 0 {
             let c: u64 = s.byte_at(i);
             if c == 34 {
-                let r: ParseStrResult = parse_quoted_string(s, i);
-                i = r.end_pos;
+                i = scan_quoted_string(s, i);
             } else {
                 if c == 123 {
                     depth = depth + 1;
@@ -42,8 +40,7 @@ pub fn json_skip_value(s: String, pos: u64) -> u64 {
         while i < s.len() && depth > 0 {
             let c: u64 = s.byte_at(i);
             if c == 34 {
-                let r: ParseStrResult = parse_quoted_string(s, i);
-                i = r.end_pos;
+                i = scan_quoted_string(s, i);
             } else {
                 if c == 91 {
                     depth = depth + 1;
@@ -96,11 +93,11 @@ pub fn json_find_key(s: String, pos: u64, key: String) -> Option<u64> {
         if s.byte_at(p) == 125 {
             return Option::None;
         }
-        let kr: ParseStrResult = parse_quoted_string(s, p);
-        p = skip_ws(s, kr.end_pos);
+        let mr: MatchQuotedResult = match_quoted_string(s, p, key);
+        p = skip_ws(s, mr.end_pos);
         p = expect_byte(s, p, 58);
         p = skip_ws(s, p);
-        if kr.val.eq(key) {
+        if mr.matched {
             return Option::Some(p);
         }
         p = json_skip_value(s, p);
