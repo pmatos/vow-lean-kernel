@@ -48,15 +48,20 @@ fn ensure_forall(env: Environment, expr: u64) -> u64 {
     return err_val();
 }
 
-fn infer_const(env: Environment, name_idx: u64, levels: Vec<u64>) -> u64 {
-    let name_str: String = name_to_string(env.names, name_idx);
-    let lookup: DeclLookup = env_lookup(env, name_str);
+fn infer_const(env: Environment, expr: u64) -> u64 {
+    let name_idx: u64 = env.exprs.f1[expr];
+    let lookup: DeclLookup = env_lookup_name(env, name_idx);
     if lookup.found == 0 {
         return err_val();
     }
-    if levels.len() != lookup.level_params.len() {
+    let level_count: u64 = expr_level_count(env.exprs, expr);
+    if level_count != lookup.level_params.len() {
         return err_val();
     }
+    if lookup.level_params.len() == 0 {
+        return lookup.ty;
+    }
+    let levels: Vec<u64> = expr_get_levels(env.exprs, expr);
     return subst_level_params(env, lookup.ty, lookup.level_params, levels);
 }
 
@@ -152,8 +157,7 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
     let struct_ty: u64 = infer(env, struct_expr);
     if is_err(struct_ty) > 0 { return err_val(); }
 
-    let name_str: String = name_to_string(env.names, struct_name);
-    let ind_lk: DeclLookup = env_lookup(env, name_str);
+    let ind_lk: DeclLookup = env_lookup_name(env, struct_name);
     if ind_lk.found == 0 || ind_lk.kind != 5 { return err_val(); }
     let ind_idx: u64 = ind_lk.val;
 
@@ -281,16 +285,16 @@ fn infer_uncached(env: Environment, expr: u64) -> u64 {
         return expr_add_sort(env.exprs, new_level);
     }
     if t == 2 {
-        return infer_const(env, env.exprs.f1[expr], expr_get_levels(env.exprs, expr));
+        return infer_const(env, expr);
     }
     if t == 3 {
         return infer_app(env, env.exprs.f1[expr], env.exprs.f2[expr]);
     }
     if t == 4 {
-        return infer_lambda(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr], env.exprs.bi[expr]);
+        return infer_lambda(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr], expr_bi(env.exprs, expr));
     }
     if t == 5 {
-        return infer_forall(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr], env.exprs.bi[expr]);
+        return infer_forall(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr], expr_bi(env.exprs, expr));
     }
     if t == 6 {
         return infer_let(env, env.exprs.f2[expr], env.exprs.f3[expr], env.exprs.f4[expr]);
@@ -299,13 +303,11 @@ fn infer_uncached(env: Environment, expr: u64) -> u64 {
         return infer(env, env.exprs.f1[expr]);
     }
     if t == 7 {
-        let lk: u64 = env.exprs.lit_kind[expr];
+        let lk: u64 = expr_lit_kind(env.exprs, expr);
         if lk == 0 {
-            let nat_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("Nat")));
-            return expr_add_const(env.exprs, nat_name, Vec::new());
+            return expr_add_const0(env.exprs, env.name_nat);
         }
-        let str_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("String")));
-        return expr_add_const(env.exprs, str_name, Vec::new());
+        return expr_add_const0(env.exprs, env.name_string);
     }
     return err_val();
 }
@@ -314,8 +316,8 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return err_val();
     }
-    if expr < env.exprs.infer_cache.len() {
-        let cached: u64 = env.exprs.infer_cache[expr];
+    if expr < env.exprs.cache.len() {
+        let cached: u64 = expr_infer_cache_get(env.exprs, expr);
         if cached != 4294967294 {
             return cached;
         }
@@ -328,10 +330,10 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
         env.cnt_infer_tag[tag_v] = env.cnt_infer_tag[tag_v] + 1;
     }
     let result: u64 = infer_uncached(env, expr);
-    while env.exprs.infer_cache.len() <= expr {
-        env.exprs.infer_cache.push(4294967294);
+    while env.exprs.cache.len() <= expr {
+        env.exprs.cache.push(0);
     }
-    env.exprs.infer_cache[expr] = result;
+    expr_infer_cache_set(env.exprs, expr, result);
     return result;
 }
 

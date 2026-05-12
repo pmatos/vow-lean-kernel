@@ -190,7 +190,7 @@ pub fn subst_level_params(env: Environment, expr: u64, params: Vec<u64>, args: V
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = subst_level_params(env, ty, params, args);
         let nb: u64 = subst_level_params(env, bd, params, args);
         if nt == ty && nb == bd {
@@ -202,7 +202,7 @@ pub fn subst_level_params(env: Environment, expr: u64, params: Vec<u64>, args: V
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = subst_level_params(env, ty, params, args);
         let nb: u64 = subst_level_params(env, bd, params, args);
         if nt == ty && nb == bd {
@@ -215,7 +215,7 @@ pub fn subst_level_params(env: Environment, expr: u64, params: Vec<u64>, args: V
         let ty: u64 = env.exprs.f2[expr];
         let vl: u64 = env.exprs.f3[expr];
         let bd: u64 = env.exprs.f4[expr];
-        let nd: u64 = env.exprs.nondep[expr];
+        let nd: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = subst_level_params(env, ty, params, args);
         let nv: u64 = subst_level_params(env, vl, params, args);
         let nb: u64 = subst_level_params(env, bd, params, args);
@@ -249,8 +249,8 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
     if amount == 0 {
         return expr;
     }
-    if expr < env.exprs.lbr.len() {
-        if env.exprs.lbr[expr] <= cutoff {
+    if expr < env.exprs.tags.len() {
+        if expr_lbr(env.exprs, expr) <= cutoff {
             return expr;
         }
     }
@@ -279,7 +279,7 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = lift(env, ty, cutoff, amount);
         let nb: u64 = lift(env, bd, cutoff + 1, amount);
         if nt == ty && nb == bd {
@@ -291,7 +291,7 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = lift(env, ty, cutoff, amount);
         let nb: u64 = lift(env, bd, cutoff + 1, amount);
         if nt == ty && nb == bd {
@@ -304,7 +304,7 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
         let ty: u64 = env.exprs.f2[expr];
         let vl: u64 = env.exprs.f3[expr];
         let bd: u64 = env.exprs.f4[expr];
-        let nd: u64 = env.exprs.nondep[expr];
+        let nd: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = lift(env, ty, cutoff, amount);
         let nv: u64 = lift(env, vl, cutoff, amount);
         let nb: u64 = lift(env, bd, cutoff + 1, amount);
@@ -335,8 +335,8 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
 }
 
 pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 {
-    if expr < env.exprs.lbr.len() {
-        if env.exprs.lbr[expr] <= depth {
+    if expr < env.exprs.tags.len() {
+        if expr_lbr(env.exprs, expr) <= depth {
             return expr;
         }
     }
@@ -367,7 +367,7 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = instantiate_at(env, ty, arg, depth);
         let nb: u64 = instantiate_at(env, bd, arg, depth + 1);
         if nt == ty && nb == bd {
@@ -379,7 +379,7 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = instantiate_at(env, ty, arg, depth);
         let nb: u64 = instantiate_at(env, bd, arg, depth + 1);
         if nt == ty && nb == bd {
@@ -392,7 +392,7 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let ty: u64 = env.exprs.f2[expr];
         let vl: u64 = env.exprs.f3[expr];
         let bd: u64 = env.exprs.f4[expr];
-        let nd: u64 = env.exprs.nondep[expr];
+        let nd: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = instantiate_at(env, ty, arg, depth);
         let nv: u64 = instantiate_at(env, vl, arg, depth);
         let nb: u64 = instantiate_at(env, bd, arg, depth + 1);
@@ -427,8 +427,8 @@ pub fn instantiate(env: Environment, body: u64, arg: u64) -> u64 {
 }
 
 fn instantiate_rev_at(env: Environment, expr: u64, args: Vec<u64>, offset: u64, num_args: u64, depth: u64) -> u64 {
-    if expr < env.exprs.lbr.len() {
-        if env.exprs.lbr[expr] <= depth {
+    if expr < env.exprs.tags.len() {
+        if expr_lbr(env.exprs, expr) <= depth {
             return expr;
         }
     }
@@ -461,7 +461,7 @@ fn instantiate_rev_at(env: Environment, expr: u64, args: Vec<u64>, offset: u64, 
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = instantiate_rev_at(env, ty, args, offset, num_args, depth);
         let nb: u64 = instantiate_rev_at(env, bd, args, offset, num_args, depth + 1);
         if nt == ty && nb == bd {
@@ -473,7 +473,7 @@ fn instantiate_rev_at(env: Environment, expr: u64, args: Vec<u64>, offset: u64, 
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = instantiate_rev_at(env, ty, args, offset, num_args, depth);
         let nb: u64 = instantiate_rev_at(env, bd, args, offset, num_args, depth + 1);
         if nt == ty && nb == bd {
@@ -486,7 +486,7 @@ fn instantiate_rev_at(env: Environment, expr: u64, args: Vec<u64>, offset: u64, 
         let ty: u64 = env.exprs.f2[expr];
         let vl: u64 = env.exprs.f3[expr];
         let bd: u64 = env.exprs.f4[expr];
-        let nd: u64 = env.exprs.nondep[expr];
+        let nd: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = instantiate_rev_at(env, ty, args, offset, num_args, depth);
         let nv: u64 = instantiate_rev_at(env, vl, args, offset, num_args, depth);
         let nb: u64 = instantiate_rev_at(env, bd, args, offset, num_args, depth + 1);
@@ -553,7 +553,7 @@ pub fn abstract_at(env: Environment, expr: u64, local_id: u64, depth: u64) -> u6
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = abstract_at(env, ty, local_id, depth);
         let nb: u64 = abstract_at(env, bd, local_id, depth + 1);
         if nt == ty && nb == bd {
@@ -565,7 +565,7 @@ pub fn abstract_at(env: Environment, expr: u64, local_id: u64, depth: u64) -> u6
         let nm: u64 = env.exprs.f1[expr];
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
-        let bi: u64 = env.exprs.bi[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = abstract_at(env, ty, local_id, depth);
         let nb: u64 = abstract_at(env, bd, local_id, depth + 1);
         if nt == ty && nb == bd {
@@ -578,7 +578,7 @@ pub fn abstract_at(env: Environment, expr: u64, local_id: u64, depth: u64) -> u6
         let ty: u64 = env.exprs.f2[expr];
         let vl: u64 = env.exprs.f3[expr];
         let bd: u64 = env.exprs.f4[expr];
-        let nd: u64 = env.exprs.nondep[expr];
+        let nd: u64 = expr_bi(env.exprs, expr);
         let nt: u64 = abstract_at(env, ty, local_id, depth);
         let nv: u64 = abstract_at(env, vl, local_id, depth);
         let nb: u64 = abstract_at(env, bd, local_id, depth + 1);
@@ -616,7 +616,7 @@ fn has_loose_bvar_at(env: Environment, expr: u64, depth: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return 0;
     }
-    if env.exprs.lbr[expr] <= depth {
+    if expr_lbr(env.exprs, expr) <= depth {
         return 0;
     }
     let t: u64 = env.exprs.tags[expr];

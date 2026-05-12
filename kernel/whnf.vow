@@ -87,15 +87,36 @@ fn rebuild_apps_skip(env: Environment, head: u64, args: Vec<u64>, skip: u64) -> 
 }
 
 pub fn whnf_no_delta(env: Environment, expr: u64) -> u64 {
-    return whnf_core(env, expr, 0);
+    env.whnf_depth = env.whnf_depth + 1;
+    if env.whnf_depth > 1024 {
+        env.whnf_depth = env.whnf_depth - 1;
+        return expr;
+    }
+    let r: u64 = whnf_core(env, expr, 0);
+    env.whnf_depth = env.whnf_depth - 1;
+    return r;
 }
 
 pub fn whnf(env: Environment, expr: u64) -> u64 {
-    return whnf_core(env, expr, 2);
+    env.whnf_depth = env.whnf_depth + 1;
+    if env.whnf_depth > 1024 {
+        env.whnf_depth = env.whnf_depth - 1;
+        return expr;
+    }
+    let r: u64 = whnf_core(env, expr, 2);
+    env.whnf_depth = env.whnf_depth - 1;
+    return r;
 }
 
 pub fn whnf_abbrev(env: Environment, expr: u64) -> u64 {
-    return whnf_core(env, expr, 1);
+    env.whnf_depth = env.whnf_depth + 1;
+    if env.whnf_depth > 1024 {
+        env.whnf_depth = env.whnf_depth - 1;
+        return expr;
+    }
+    let r: u64 = whnf_core(env, expr, 1);
+    env.whnf_depth = env.whnf_depth - 1;
+    return r;
 }
 
 pub fn nat_str_ble(a: String, b: String) -> u64 {
@@ -163,30 +184,15 @@ pub fn nat_value(env: Environment, e: u64) -> u64 {
     let w: u64 = whnf(env, e);
     if w >= env.exprs.tags.len() { return 4294967294; }
     let t: u64 = env.exprs.tags[w];
-    if t == 7 && env.exprs.lit_kind[w] == 0 {
-        let s: String = env.exprs.lit_val[w];
-        if s.len() > 19 { return 4294967294; }
-        let mut v: u64 = 0;
-        let mut i: u64 = 0;
-        while i < s.len() {
-            let d: u64 = s.byte_at(i) - 48;
-            let prev: u64 = v;
-            v = v * 10 + d;
-            if v < prev { return 4294967294; }
-            i = i + 1;
-        }
-        return v;
-    }
+    if t == 7 { return expr_lit_nat_u64(env.exprs, w); }
     if t == 2 {
-        let ns: String = name_to_string(env.names, env.exprs.f1[w]);
-        if str_eq(ns, String::from("Nat.zero")) > 0 { return 0; }
+        if env.exprs.f1[w] == env.name_nat_zero { return 0; }
     }
     if t == 3 {
         let h: u64 = env.exprs.f1[w];
         let a: u64 = env.exprs.f2[w];
         if h < env.exprs.tags.len() && env.exprs.tags[h] == 2 {
-            let ns: String = name_to_string(env.names, env.exprs.f1[h]);
-            if str_eq(ns, String::from("Nat.succ")) > 0 {
+            if env.exprs.f1[h] == env.name_nat_succ {
                 let inner: u64 = nat_value(env, a);
                 if inner != 4294967294 && inner < 4294967293 {
                     return inner + 1;
@@ -201,8 +207,8 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return expr;
     }
-    if do_delta > 0 && expr < env.exprs.whnf_cache.len() {
-        let wc: u64 = env.exprs.whnf_cache[expr];
+    if do_delta > 0 && expr < env.exprs.cache.len() {
+        let wc: u64 = expr_whnf_cache_get(env.exprs, expr);
         if wc != 4294967294 {
             return wc;
         }
@@ -213,8 +219,8 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     while fuel > 0 {
         fuel = fuel - 1;
         if cur >= env.exprs.tags.len() {
-            if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
-                env.exprs.whnf_cache[orig_expr] = cur;
+            if do_delta > 0 && orig_expr < env.exprs.cache.len() {
+                expr_whnf_cache_set(env.exprs, orig_expr, cur);
             }
             return cur;
         }
@@ -280,36 +286,125 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             reduced = 1;
         } else if ht == 2 {
             let name_idx: u64 = env.exprs.f1[head];
-            let levels: Vec<u64> = expr_get_levels(env.exprs, head);
-            let name_str: String = name_to_string(env.names, name_idx);
-            if args.len() >= 1 && name_str.len() >= 5 {
-                if name_str.byte_at(0) == 78 && name_str.byte_at(1) == 97 && name_str.byte_at(2) == 116 && name_str.byte_at(3) == 46 {
-                    if str_eq(name_str, String::from("Nat.succ")) > 0 {
-                        let sv: u64 = nat_value(env, args[args.len() - 1]);
-                        if sv != 4294967294 && sv < 4294967293 {
-                            cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, sv + 1), args, 1);
-                            reduced = 1;
+            if reduced == 0 && args.len() >= 3 {
+                if name_idx == env.name_ofnat_ofnat {
+                    let ty_arg_on: u64 = args[args.len() - 1];
+                    if ty_arg_on < env.exprs.tags.len() && env.exprs.tags[ty_arg_on] == 2 {
+                        if env.exprs.f1[ty_arg_on] == env.name_nat {
+                            let n_arg_on: u64 = whnf(env, args[args.len() - 2]);
+                            if n_arg_on < env.exprs.tags.len() && env.exprs.tags[n_arg_on] == 7 && expr_lit_kind(env.exprs, n_arg_on) == 0 {
+                                cur = rebuild_apps_skip(env, n_arg_on, args, 3);
+                                reduced = 1;
+                            }
                         }
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 2 && name_str.len() >= 5 {
-                let mut is_nat_op: u64 = 0;
-                if name_str.byte_at(0) == 78 && name_str.byte_at(1) == 97 && name_str.byte_at(2) == 116 && name_str.byte_at(3) == 46 {
-                    if str_eq(name_str, String::from("Nat.add")) > 0 { is_nat_op = 1; }
-                    if str_eq(name_str, String::from("Nat.sub")) > 0 { is_nat_op = 2; }
-                    if str_eq(name_str, String::from("Nat.mul")) > 0 { is_nat_op = 3; }
-                    if str_eq(name_str, String::from("Nat.div")) > 0 { is_nat_op = 4; }
-                    if str_eq(name_str, String::from("Nat.mod")) > 0 { is_nat_op = 5; }
-                    if str_eq(name_str, String::from("Nat.ble")) > 0 { is_nat_op = 6; }
-                    if str_eq(name_str, String::from("Nat.beq")) > 0 { is_nat_op = 7; }
-                    if str_eq(name_str, String::from("Nat.land")) > 0 { is_nat_op = 8; }
-                    if str_eq(name_str, String::from("Nat.lor")) > 0 { is_nat_op = 9; }
-                    if str_eq(name_str, String::from("Nat.xor")) > 0 { is_nat_op = 10; }
-                    if str_eq(name_str, String::from("Nat.shiftLeft")) > 0 { is_nat_op = 11; }
-                    if str_eq(name_str, String::from("Nat.shiftRight")) > 0 { is_nat_op = 12; }
-                    if str_eq(name_str, String::from("Nat.pow")) > 0 { is_nat_op = 13; }
+            if reduced == 0 && args.len() >= 5 {
+                if name_idx == env.name_pow_pow {
+                    let ty_a_pw: u64 = args[args.len() - 1];
+                    let ty_b_pw: u64 = args[args.len() - 2];
+                    let mut nat_tys_pw: u64 = 0;
+                    if ty_a_pw < env.exprs.tags.len() && ty_b_pw < env.exprs.tags.len() {
+                        if env.exprs.tags[ty_a_pw] == 2 && env.exprs.tags[ty_b_pw] == 2 {
+                            if env.exprs.f1[ty_a_pw] == env.name_nat && env.exprs.f1[ty_b_pw] == env.name_nat {
+                                nat_tys_pw = 1;
+                            }
+                        }
+                    }
+                    if nat_tys_pw > 0 {
+                        let base_pw: u64 = nat_value(env, args[args.len() - 4]);
+                        let exp_pw: u64 = nat_value(env, args[args.len() - 5]);
+                        if base_pw != 4294967294 && exp_pw != 4294967294 && exp_pw <= 256 {
+                            if exp_pw <= 24 {
+                                let mut pv_pw: u64 = 1;
+                                let mut pi_pw: u64 = 0;
+                                while pi_pw < exp_pw { pv_pw = pv_pw * base_pw; pi_pw = pi_pw + 1; }
+                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pv_pw), args, 5);
+                                reduced = 1;
+                            } else {
+                                let base_str_pw: String = u64_to_string(base_pw);
+                                let mut result_str_pw: String = String::from("1");
+                                let mut pi_pw: u64 = 0;
+                                while pi_pw < exp_pw { result_str_pw = nat_str_mul(result_str_pw, base_str_pw); pi_pw = pi_pw + 1; }
+                                cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, result_str_pw), args, 5);
+                                reduced = 1;
+                            }
+                        }
+                    }
                 }
+            }
+            if reduced == 0 && args.len() >= 6 {
+                let mut class_nat_op: u64 = 0;
+                if name_idx == env.name_hpow_hpow { class_nat_op = 13; }
+                if name_idx == env.name_hmod_hmod { class_nat_op = 5; }
+                if name_idx == env.name_hshiftleft_hshiftleft { class_nat_op = 11; }
+                if class_nat_op > 0 {
+                    let ty0_cn: u64 = args[args.len() - 1];
+                    let ty1_cn: u64 = args[args.len() - 2];
+                    let ty2_cn: u64 = args[args.len() - 3];
+                    let mut nat_tys_cn: u64 = 0;
+                    if ty0_cn < env.exprs.tags.len() && ty1_cn < env.exprs.tags.len() && ty2_cn < env.exprs.tags.len() {
+                        if env.exprs.tags[ty0_cn] == 2 && env.exprs.tags[ty1_cn] == 2 && env.exprs.tags[ty2_cn] == 2 {
+                            if env.exprs.f1[ty0_cn] == env.name_nat && env.exprs.f1[ty1_cn] == env.name_nat && env.exprs.f1[ty2_cn] == env.name_nat {
+                                nat_tys_cn = 1;
+                            }
+                        }
+                    }
+                    if nat_tys_cn > 0 {
+                        let lhs_cn: u64 = nat_value(env, args[args.len() - 5]);
+                        let rhs_cn: u64 = nat_value(env, args[args.len() - 6]);
+                        if lhs_cn != 4294967294 && rhs_cn != 4294967294 {
+                            if class_nat_op == 5 {
+                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if rhs_cn == 0 { lhs_cn } else { lhs_cn % rhs_cn }), args, 6);
+                                reduced = 1;
+                            }
+                            if class_nat_op == 11 && rhs_cn < 64 {
+                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_shl(lhs_cn, rhs_cn)), args, 6);
+                                reduced = 1;
+                            }
+                            if class_nat_op == 13 && rhs_cn <= 256 {
+                                if rhs_cn <= 24 {
+                                    let mut pv_cn: u64 = 1;
+                                    let mut pi_cn: u64 = 0;
+                                    while pi_cn < rhs_cn { pv_cn = pv_cn * lhs_cn; pi_cn = pi_cn + 1; }
+                                    cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pv_cn), args, 6);
+                                    reduced = 1;
+                                } else {
+                                    let base_str_cn: String = u64_to_string(lhs_cn);
+                                    let mut result_str_cn: String = String::from("1");
+                                    let mut pi_cn: u64 = 0;
+                                    while pi_cn < rhs_cn { result_str_cn = nat_str_mul(result_str_cn, base_str_cn); pi_cn = pi_cn + 1; }
+                                    cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, result_str_cn), args, 6);
+                                    reduced = 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if args.len() >= 1 && name_idx == env.name_nat_succ {
+                let sv: u64 = nat_value(env, args[args.len() - 1]);
+                if sv != 4294967294 && sv < 4294967293 {
+                    cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, sv + 1), args, 1);
+                    reduced = 1;
+                }
+            }
+            if reduced == 0 && args.len() >= 2 {
+                let mut is_nat_op: u64 = 0;
+                if name_idx == env.name_nat_add { is_nat_op = 1; }
+                if name_idx == env.name_nat_sub { is_nat_op = 2; }
+                if name_idx == env.name_nat_mul { is_nat_op = 3; }
+                if name_idx == env.name_nat_div { is_nat_op = 4; }
+                if name_idx == env.name_nat_mod { is_nat_op = 5; }
+                if name_idx == env.name_nat_ble { is_nat_op = 6; }
+                if name_idx == env.name_nat_beq { is_nat_op = 7; }
+                if name_idx == env.name_nat_land { is_nat_op = 8; }
+                if name_idx == env.name_nat_lor { is_nat_op = 9; }
+                if name_idx == env.name_nat_xor { is_nat_op = 10; }
+                if name_idx == env.name_nat_shift_left { is_nat_op = 11; }
+                if name_idx == env.name_nat_shift_right { is_nat_op = 12; }
+                if name_idx == env.name_nat_pow { is_nat_op = 13; }
                 if is_nat_op > 0 {
                     let va0: u64 = nat_value(env, args[args.len() - 1]);
                     let va1: u64 = nat_value(env, args[args.len() - 2]);
@@ -320,12 +415,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         if is_nat_op == 4 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if va1 == 0 { 0 } else { va0 / va1 }), args, 2); reduced = 1; }
                         if is_nat_op == 5 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if va1 == 0 { va0 } else { va0 % va1 }), args, 2); reduced = 1; }
                         if is_nat_op == 6 || is_nat_op == 7 {
-                            let bool_ns: u64 = name_arena_add(env.names, make_name_str(0, String::from("Bool")));
                             let mut bval: u64 = 0;
                             if is_nat_op == 6 { bval = if va0 <= va1 { 1 } else { 0 }; }
                             if is_nat_op == 7 { bval = if va0 == va1 { 1 } else { 0 }; }
-                            let bname: u64 = if bval > 0 { name_arena_add(env.names, make_name_str(bool_ns, String::from("true"))) } else { name_arena_add(env.names, make_name_str(bool_ns, String::from("false"))) };
-                            cur = rebuild_apps_skip(env, expr_add_const(env.exprs, bname, Vec::new()), args, 2);
+                            let bname: u64 = if bval > 0 { env.name_bool_true } else { env.name_bool_false };
+                            cur = rebuild_apps_skip(env, expr_add_const0(env.exprs, bname), args, 2);
                             reduced = 1;
                         }
                         if is_nat_op == 8 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitand(va0, va1)), args, 2); reduced = 1; }
@@ -354,26 +448,27 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         let w0: u64 = whnf(env, args[args.len() - 1]);
                         let w1: u64 = whnf(env, args[args.len() - 2]);
                         if w0 < env.exprs.tags.len() && w1 < env.exprs.tags.len() {
-                            if env.exprs.tags[w0] == 7 && env.exprs.lit_kind[w0] == 0 && env.exprs.tags[w1] == 7 && env.exprs.lit_kind[w1] == 0 {
-                                let s0: String = env.exprs.lit_val[w0];
-                                let s1: String = env.exprs.lit_val[w1];
-                                let bool_ns: u64 = name_arena_add(env.names, make_name_str(0, String::from("Bool")));
+                            if env.exprs.tags[w0] == 7 && expr_lit_kind(env.exprs, w0) == 0 && env.exprs.tags[w1] == 7 && expr_lit_kind(env.exprs, w1) == 0 {
                                 let mut bval: u64 = 0;
-                                if is_nat_op == 6 { bval = nat_str_ble(s0, s1); }
-                                if is_nat_op == 7 { bval = nat_str_beq(s0, s1); }
-                                let bname: u64 = if bval > 0 { name_arena_add(env.names, make_name_str(bool_ns, String::from("true"))) } else { name_arena_add(env.names, make_name_str(bool_ns, String::from("false"))) };
-                                cur = rebuild_apps_skip(env, expr_add_const(env.exprs, bname, Vec::new()), args, 2);
+                                if is_nat_op == 6 { bval = expr_lit_nat_ble(env.exprs, w0, w1); }
+                                if is_nat_op == 7 { bval = expr_lit_eq(env.exprs, w0, w1); }
+                                let bname: u64 = if bval > 0 { env.name_bool_true } else { env.name_bool_false };
+                                cur = rebuild_apps_skip(env, expr_add_const0(env.exprs, bname), args, 2);
                                 reduced = 1;
                             }
                         }
                     }
                 }
             }
-            let lookup: DeclLookup = env_lookup(env, name_str);
+            let lookup: DeclLookup = env_lookup_name(env, name_idx);
             if reduced == 0 && lookup.found > 0 && do_delta > 0 {
               if lookup.kind == 1 || lookup.kind == 3 {
                 let should_unfold: u64 = if lookup.kind == 3 { 1 } else { if do_delta > 1 { 1 } else { if lookup.height == 0 { 1 } else { 0 } } };
                 if should_unfold > 0 {
+                    let mut levels: Vec<u64> = Vec::new();
+                    if lookup.level_params.len() > 0 {
+                        levels = expr_get_levels(env.exprs, head);
+                    }
                     let val: u64 = subst_level_params(env, lookup.val, lookup.level_params, levels);
                     cur = rebuild_apps(env, val, args);
                     reduced = 1;
@@ -396,8 +491,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         qv_head = env.exprs.f1[qv_head];
                     }
                     if qv_head < env.exprs.tags.len() && env.exprs.tags[qv_head] == 2 {
-                        let qv_ns: String = name_to_string(env.names, env.exprs.f1[qv_head]);
-                        let qv_lk: DeclLookup = env_lookup(env, qv_ns);
+                        let qv_lk: DeclLookup = env_lookup_name(env, env.exprs.f1[qv_head]);
                         if qv_lk.found > 0 && qv_lk.kind == 4 && qv_lk.val == 1 && qv_args.len() >= 3 {
                             let a_val: u64 = qv_args[0];
                             let fn_val: u64 = args[quot_fn_pos];
@@ -409,6 +503,10 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             }
             if reduced == 0 && lookup.found > 0 && lookup.kind == 7 {
                 let rec_idx: u64 = lookup.val;
+                let mut levels: Vec<u64> = Vec::new();
+                if lookup.level_params.len() > 0 {
+                    levels = expr_get_levels(env.exprs, head);
+                }
                 let np: u64 = env.rec_num_params[rec_idx];
                 let nm: u64 = env.rec_num_motives[rec_idx];
                 let nmi: u64 = env.rec_num_minors[rec_idx];
@@ -423,30 +521,20 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         major_args.push(env.exprs.f2[major_head]);
                         major_head = env.exprs.f1[major_head];
                     }
-                    if major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 7 && env.exprs.lit_kind[major_head] == 0 {
-                        let lit_str: String = env.exprs.lit_val[major_head];
-                        let mut lit_val: u64 = 0;
-                        let mut li: u64 = 0;
-                        while li < lit_str.len() {
-                            lit_val = lit_val * 10 + lit_str.byte_at(li) - 48;
-                            li = li + 1;
-                        }
-                        let nat_ns: u64 = name_arena_add(env.names, make_name_str(0, String::from("Nat")));
-                        if lit_val == 0 {
-                            let zero_name: u64 = name_arena_add(env.names, make_name_str(nat_ns, String::from("zero")));
-                            major_head = expr_add_const(env.exprs, zero_name, Vec::new());
-                        } else {
-                            let succ_name: u64 = name_arena_add(env.names, make_name_str(nat_ns, String::from("succ")));
+                    if major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 7 && expr_lit_kind(env.exprs, major_head) == 0 {
+                        let lit_val: u64 = expr_lit_nat_u64(env.exprs, major_head);
+                        if lit_val != 4294967294 && lit_val == 0 {
+                            major_head = expr_add_const0(env.exprs, env.name_nat_zero);
+                        } else if lit_val != 4294967294 {
                             let pred_lit: u64 = expr_add_nat_lit(env.exprs, lit_val - 1);
-                            major_head = expr_add_const(env.exprs, succ_name, Vec::new());
+                            major_head = expr_add_const0(env.exprs, env.name_nat_succ);
                             major_args.push(pred_lit);
                         }
                     }
                     let mut iota_done: u64 = 0;
                     if major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 2 {
                         let ctor_name_idx: u64 = env.exprs.f1[major_head];
-                        let ctor_name_str: String = name_to_string(env.names, ctor_name_idx);
-                        let ctor_lookup: DeclLookup = env_lookup(env, ctor_name_str);
+                        let ctor_lookup: DeclLookup = env_lookup_name(env, ctor_name_idx);
                         if ctor_lookup.found > 0 && ctor_lookup.kind == 6 {
                             let rs: u64 = env.rec_rule_start[rec_idx];
                             let rc: u64 = env.rec_rule_count[rec_idx];
@@ -500,8 +588,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             let rule_rhs_k: u64 = env.rec_rule_rhs[rs_k];
                             let ctor_name_k: u64 = env.rec_rule_ctors[rs_k];
                             let rec_name_data_k: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
-                            let ind_name_str_k: String = name_to_string(env.names, rec_name_data_k.parent);
-                            let ind_lk_k: DeclLookup = env_lookup(env, ind_name_str_k);
+                            let ind_lk_k: DeclLookup = env_lookup_name(env, rec_name_data_k.parent);
                             let mut k_ok: u64 = 0;
                             if ind_lk_k.found > 0 && ind_lk_k.kind == 5 {
                                 let ind_nlp: u64 = ind_lk_k.level_params.len();
@@ -557,8 +644,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     if iota_done == 0 && reduced == 0 {
                         let rec_nd_e: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
                         let ind_name_e: u64 = rec_nd_e.parent;
-                        let ind_str_e: String = name_to_string(env.names, ind_name_e);
-                        let ind_lk_e: DeclLookup = env_lookup(env, ind_str_e);
+                        let ind_lk_e: DeclLookup = env_lookup_name(env, ind_name_e);
                         if ind_lk_e.found > 0 {
                           if ind_lk_e.kind == 5 {
                             let e_ind_idx: u64 = ind_lk_e.val;
@@ -605,19 +691,18 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                   }
                                   cur = new_rec_e;
                                   reduced = 1;
-                                }
-                              }
-                            }
-                          }
-                        }
+	                          }
+	                        }
+	                    }
                     }
+                }
+            }
                     // Convert stuck rec on single-constructor struct with simple field-selector minor → Proj
                     // Uses proj_name_canon to match lean4export's naming (e.g., PProd for Prod)
                     if iota_done == 0 && reduced == 0 {
                         let rec_nd_p: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
                         let ind_name_p: u64 = rec_nd_p.parent;
-                        let ind_str_p: String = name_to_string(env.names, ind_name_p);
-                        let ind_lk_p: DeclLookup = env_lookup(env, ind_str_p);
+                        let ind_lk_p: DeclLookup = env_lookup_name(env, ind_name_p);
                         if ind_lk_p.found > 0 {
                           if ind_lk_p.kind == 5 {
                             let p_ind_idx: u64 = ind_lk_p.val;
@@ -673,27 +758,39 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             let proj_idx: u64 = env.exprs.f2[head];
             let struct_expr: u64 = env.exprs.f3[head];
             let w_struct: u64 = whnf(env, struct_expr);
-            let mut s_args: Vec<u64> = Vec::new();
-            let mut s_head: u64 = w_struct;
-            while s_head < env.exprs.tags.len() && env.exprs.tags[s_head] == 3 {
-                s_args.push(env.exprs.f2[s_head]);
-                s_head = env.exprs.f1[s_head];
-            }
-            if s_head < env.exprs.tags.len() && env.exprs.tags[s_head] == 2 {
-                let ctor_name_str: String = name_to_string(env.names, env.exprs.f1[s_head]);
-                let ctor_lk: DeclLookup = env_lookup(env, ctor_name_str);
-                if ctor_lk.found > 0 && ctor_lk.kind == 6 {
-                    let ind_name_str: String = name_to_string(env.names, struct_name);
-                    let ind_lk: DeclLookup = env_lookup(env, ind_name_str);
-                    if ind_lk.found > 0 && ind_lk.kind == 5 {
-                        let ind_idx: u64 = ind_lk.val;
-                        let cs: u64 = env.ind_ctor_start[ind_idx];
-                        let np: u64 = env.ind_ctor_num_params[cs];
-                        let nf: u64 = env.ind_ctor_num_fields[cs];
-                        if proj_idx < nf && s_args.len() >= np + nf {
-                            let field_pos: u64 = s_args.len() - 1 - np - proj_idx;
-                            cur = rebuild_apps(env, s_args[field_pos], args);
+
+            if proj_idx == 0 && w_struct < env.exprs.tags.len() {
+                if env.exprs.tags[w_struct] == 7 && expr_lit_kind(env.exprs, w_struct) == 1 {
+                    if struct_name == env.name_string {
+                        if expr_lit_is_empty_str(env.exprs, w_struct) > 0 {
+                            cur = rebuild_apps(env, expr_add_const0(env.exprs, env.name_bytearray_empty), args);
                             reduced = 1;
+                        }
+                    }
+                }
+            }
+
+            if reduced == 0 {
+                let mut s_args: Vec<u64> = Vec::new();
+                let mut s_head: u64 = w_struct;
+                while s_head < env.exprs.tags.len() && env.exprs.tags[s_head] == 3 {
+                    s_args.push(env.exprs.f2[s_head]);
+                    s_head = env.exprs.f1[s_head];
+                }
+                if s_head < env.exprs.tags.len() && env.exprs.tags[s_head] == 2 {
+                    let ctor_lk: DeclLookup = env_lookup_name(env, env.exprs.f1[s_head]);
+                    if ctor_lk.found > 0 && ctor_lk.kind == 6 {
+                        let ind_lk: DeclLookup = env_lookup_name(env, struct_name);
+                        if ind_lk.found > 0 && ind_lk.kind == 5 {
+                            let ind_idx: u64 = ind_lk.val;
+                            let cs: u64 = env.ind_ctor_start[ind_idx];
+                            let np: u64 = env.ind_ctor_num_params[cs];
+                            let nf: u64 = env.ind_ctor_num_fields[cs];
+                            if proj_idx < nf && s_args.len() >= np + nf {
+                                let field_pos: u64 = s_args.len() - 1 - np - proj_idx;
+                                cur = rebuild_apps(env, s_args[field_pos], args);
+                                reduced = 1;
+                            }
                         }
                     }
                 }
@@ -706,14 +803,14 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         }
 
         if reduced == 0 {
-            if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
-                env.exprs.whnf_cache[orig_expr] = cur;
+            if do_delta > 0 && orig_expr < env.exprs.cache.len() {
+                expr_whnf_cache_set(env.exprs, orig_expr, cur);
             }
             return cur;
         }
     }
-    if do_delta > 0 && orig_expr < env.exprs.whnf_cache.len() {
-        env.exprs.whnf_cache[orig_expr] = cur;
+    if do_delta > 0 && orig_expr < env.exprs.cache.len() {
+        expr_whnf_cache_set(env.exprs, orig_expr, cur);
     }
     return cur;
 }

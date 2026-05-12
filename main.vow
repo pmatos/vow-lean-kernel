@@ -81,7 +81,7 @@ fn debug_walk(env: Environment, expr: u64, depth: u64) [io] {
     if t == 4 {
         let lty: u64 = env.exprs.f2[expr];
         let lbod: u64 = env.exprs.f3[expr];
-        let lbi: u64 = env.exprs.bi[expr];
+        let lbi: u64 = expr_bi(env.exprs, expr);
         let lty_r: u64 = infer(env, lty);
         indent = 0;
         while indent < depth + 1 { print_str(String::from("  ")); indent = indent + 1; }
@@ -150,6 +150,7 @@ fn main() -> i32 [io, read] {
         eprintln_str(String::from("error: duplicate or invalid declaration metadata"));
         return exit_internal_error();
     }
+    env_init_builtin_names(env);
 
     // Normalize Proj typeNames for known lean4export cross-type pairs.
     // lean4export uses PProd for Prod projections, PSigma for Sigma, etc.
@@ -165,8 +166,8 @@ fn main() -> i32 [io, read] {
     let psigma_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("PSigma")));
     let sigma_name: u64 = name_arena_add(env.names, make_name_str(0, String::from("Sigma")));
     // Map PProd → Prod if both exist as inductives
-    let pprod_lk: DeclLookup = env_lookup(env, String::from("PProd"));
-    let prod_lk: DeclLookup = env_lookup(env, String::from("Prod"));
+    let pprod_lk: DeclLookup = env_lookup_name(env, pprod_name);
+    let prod_lk: DeclLookup = env_lookup_name(env, prod_name);
     if pprod_lk.found > 0 && prod_lk.found > 0 {
         if pprod_lk.kind == 5 && prod_lk.kind == 5 {
             if pprod_name < env.proj_name_canon.len() {
@@ -175,8 +176,8 @@ fn main() -> i32 [io, read] {
         }
     }
     // Map PSigma → Sigma if both exist
-    let psigma_lk: DeclLookup = env_lookup(env, String::from("PSigma"));
-    let sigma_lk: DeclLookup = env_lookup(env, String::from("Sigma"));
+    let psigma_lk: DeclLookup = env_lookup_name(env, psigma_name);
+    let sigma_lk: DeclLookup = env_lookup_name(env, sigma_name);
     if psigma_lk.found > 0 && sigma_lk.found > 0 {
         if psigma_lk.kind == 5 && sigma_lk.kind == 5 {
             if psigma_name < env.proj_name_canon.len() {
@@ -198,7 +199,6 @@ fn main() -> i32 [io, read] {
         }
         pei = pei + 1;
     }
-
     let expr_watermark: u64 = env.exprs.tags.len();
     let level_watermark: u64 = env.levels.tags.len();
 
@@ -284,9 +284,16 @@ fn main() -> i32 [io, read] {
         }
         expr_arena_clear_caches(env.exprs);
         expr_arena_truncate(env.exprs, expr_watermark);
+        level_arena_truncate(env.levels, level_watermark);
         while env.def_eq_lhs.len() > 0 { env.def_eq_lhs.pop(); }
         while env.def_eq_rhs.len() > 0 { env.def_eq_rhs.pop(); }
+        let mut dci: u64 = 0;
+        while dci < env.def_eq_cache_v.len() {
+            env.def_eq_cache_v[dci] = 0;
+            dci = dci + 1;
+        }
         env.def_eq_depth = 0;
+        env.whnf_depth = 0;
         env.kernel_fuel = 0;
         env.cnt_infer_uncached = 0;
         env.cnt_is_def_eq_full = 0;
