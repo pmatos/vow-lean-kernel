@@ -288,8 +288,8 @@ fn main() -> i32 [io, read] {
         expr_arena_clear_caches(env.exprs);
         expr_arena_truncate(env.exprs, expr_watermark);
         level_arena_truncate(env.levels, level_watermark);
-        while env.def_eq_lhs.len() > 0 { env.def_eq_lhs.pop(); }
-        while env.def_eq_rhs.len() > 0 { env.def_eq_rhs.pop(); }
+        env.def_eq_lhs.truncate(0);
+        env.def_eq_rhs.truncate(0);
         let mut dci: u64 = 0;
         while dci < env.def_eq_cache_v.len() {
             env.def_eq_cache_v[dci] = 0;
