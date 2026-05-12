@@ -463,15 +463,16 @@ pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
         arena.bucket_head[h] = cur;
         h = h + 1;
     }
-    // Phase B: shrink all parallel arrays back to the watermark.
-    while arena.tags.len() > size { arena.tags.pop(); }
-    while arena.f1.len() > size { arena.f1.pop(); }
-    while arena.f2.len() > size { arena.f2.pop(); }
-    while arena.f3.len() > size { arena.f3.pop(); }
-    while arena.f4.len() > size { arena.f4.pop(); }
-    while arena.bi.len() > size { arena.bi.pop(); }
-    while arena.level_pool.len() > pool_cut { arena.level_pool.pop(); }
-    while arena.lit_val.len() > lit_cut { arena.lit_val.pop(); }
-    while arena.cache.len() > size { arena.cache.pop(); }
-    while arena.hash_next.len() > size { arena.hash_next.pop(); }
+    // Runtime truncate frees excess capacity; pop-only shrinkage keeps large
+    // per-declaration temporary bursts resident across the full init run.
+    arena.tags.truncate(size);
+    arena.f1.truncate(size);
+    arena.f2.truncate(size);
+    arena.f3.truncate(size);
+    arena.f4.truncate(size);
+    arena.bi.truncate(size);
+    arena.level_pool.truncate(pool_cut);
+    arena.lit_val.truncate(lit_cut);
+    arena.cache.truncate(size);
+    arena.hash_next.truncate(size);
 }

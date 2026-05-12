@@ -133,6 +133,57 @@ pub fn subst_level(env: Environment, level: u64, params: Vec<u64>, args: Vec<u64
     return level;
 }
 
+pub fn subst_level_const_args(env: Environment, level: u64, params: Vec<u64>, args_expr: u64) -> u64 {
+    let t: u64 = env.levels.tags[level];
+    if t == 0 {
+        return level;
+    }
+    if t == 1 {
+        let pred: u64 = env.levels.f1[level];
+        let new_pred: u64 = subst_level_const_args(env, pred, params, args_expr);
+        if new_pred == pred {
+            return level;
+        }
+        return level_add_succ(env.levels, new_pred);
+    }
+    if t == 2 {
+        let lhs: u64 = env.levels.f1[level];
+        let rhs: u64 = env.levels.f2[level];
+        let new_lhs: u64 = subst_level_const_args(env, lhs, params, args_expr);
+        let new_rhs: u64 = subst_level_const_args(env, rhs, params, args_expr);
+        if new_lhs == lhs && new_rhs == rhs {
+            return level;
+        }
+        return level_max(env, new_lhs, new_rhs);
+    }
+    if t == 3 {
+        let lhs: u64 = env.levels.f1[level];
+        let rhs: u64 = env.levels.f2[level];
+        let new_lhs: u64 = subst_level_const_args(env, lhs, params, args_expr);
+        let new_rhs: u64 = subst_level_const_args(env, rhs, params, args_expr);
+        if new_lhs == lhs && new_rhs == rhs {
+            return level;
+        }
+        return level_imax(env, new_lhs, new_rhs);
+    }
+    if t == 4 {
+        let name: u64 = env.levels.f1[level];
+        let arg_count: u64 = expr_level_count(env.exprs, args_expr);
+        let mut i: u64 = 0;
+        while i < params.len() {
+            if params[i] == name {
+                if i < arg_count {
+                    return expr_level_at(env.exprs, args_expr, i);
+                }
+                return level;
+            }
+            i = i + 1;
+        }
+        return level;
+    }
+    return level;
+}
+
 fn subst_levels(env: Environment, lvls: Vec<u64>, params: Vec<u64>, args: Vec<u64>) -> Vec<u64> {
     let mut result: Vec<u64> = Vec::new();
     let mut i: u64 = 0;
@@ -149,6 +200,117 @@ fn subst_levels(env: Environment, lvls: Vec<u64>, params: Vec<u64>, args: Vec<u6
         return lvls;
     }
     return result;
+}
+
+pub fn subst_level_params_const_args(env: Environment, expr: u64, params: Vec<u64>, args_expr: u64) -> u64 {
+    if params.len() == 0 {
+        return expr;
+    }
+    let t: u64 = env.exprs.tags[expr];
+    if t == 0 || t == 10 || t == 7 {
+        return expr;
+    }
+    if t == 1 {
+        let level: u64 = env.exprs.f1[expr];
+        let new_level: u64 = subst_level_const_args(env, level, params, args_expr);
+        if new_level == level {
+            return expr;
+        }
+        return expr_add_sort(env.exprs, new_level);
+    }
+    if t == 2 {
+        let name: u64 = env.exprs.f1[expr];
+        let start: u64 = env.exprs.f2[expr];
+        let n: u64 = env.exprs.f3[expr];
+        let mut changed: u64 = 0;
+        let mut i: u64 = 0;
+        while i < n {
+            let old_l: u64 = env.exprs.level_pool[start + i];
+            let new_l: u64 = subst_level_const_args(env, old_l, params, args_expr);
+            if new_l != old_l {
+                changed = 1;
+                i = n;
+            }
+            i = i + 1;
+        }
+        if changed == 0 {
+            return expr;
+        }
+        let mut new_lvls: Vec<u64> = Vec::new();
+        let mut j: u64 = 0;
+        while j < n {
+            new_lvls.push(subst_level_const_args(env, env.exprs.level_pool[start + j], params, args_expr));
+            j = j + 1;
+        }
+        return expr_add_const(env.exprs, name, new_lvls);
+    }
+    if t == 3 {
+        let func: u64 = env.exprs.f1[expr];
+        let arg: u64 = env.exprs.f2[expr];
+        let nf: u64 = subst_level_params_const_args(env, func, params, args_expr);
+        let na: u64 = subst_level_params_const_args(env, arg, params, args_expr);
+        if nf == func && na == arg {
+            return expr;
+        }
+        return expr_add_app(env.exprs, nf, na);
+    }
+    if t == 4 {
+        let nm: u64 = env.exprs.f1[expr];
+        let ty: u64 = env.exprs.f2[expr];
+        let bd: u64 = env.exprs.f3[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
+        let nt: u64 = subst_level_params_const_args(env, ty, params, args_expr);
+        let nb: u64 = subst_level_params_const_args(env, bd, params, args_expr);
+        if nt == ty && nb == bd {
+            return expr;
+        }
+        return expr_add_lambda(env.exprs, nm, nt, nb, bi);
+    }
+    if t == 5 {
+        let nm: u64 = env.exprs.f1[expr];
+        let ty: u64 = env.exprs.f2[expr];
+        let bd: u64 = env.exprs.f3[expr];
+        let bi: u64 = expr_bi(env.exprs, expr);
+        let nt: u64 = subst_level_params_const_args(env, ty, params, args_expr);
+        let nb: u64 = subst_level_params_const_args(env, bd, params, args_expr);
+        if nt == ty && nb == bd {
+            return expr;
+        }
+        return expr_add_forall(env.exprs, nm, nt, nb, bi);
+    }
+    if t == 6 {
+        let nm: u64 = env.exprs.f1[expr];
+        let ty: u64 = env.exprs.f2[expr];
+        let vl: u64 = env.exprs.f3[expr];
+        let bd: u64 = env.exprs.f4[expr];
+        let nd: u64 = expr_bi(env.exprs, expr);
+        let nt: u64 = subst_level_params_const_args(env, ty, params, args_expr);
+        let nv: u64 = subst_level_params_const_args(env, vl, params, args_expr);
+        let nb: u64 = subst_level_params_const_args(env, bd, params, args_expr);
+        if nt == ty && nv == vl && nb == bd {
+            return expr;
+        }
+        return expr_add_let(env.exprs, nm, nt, nv, nb, nd);
+    }
+    if t == 8 {
+        let sn: u64 = env.exprs.f1[expr];
+        let ix: u64 = env.exprs.f2[expr];
+        let inner: u64 = env.exprs.f3[expr];
+        let ni: u64 = subst_level_params_const_args(env, inner, params, args_expr);
+        if ni == inner {
+            return expr;
+        }
+        return expr_add_proj(env.exprs, sn, ix, ni);
+    }
+    if t == 9 {
+        let inner: u64 = env.exprs.f1[expr];
+        let ni: u64 = subst_level_params_const_args(env, inner, params, args_expr);
+        if ni == inner {
+            return expr;
+        }
+        return expr_add_mdata(env.exprs, ni);
+    }
+    return expr;
 }
 
 pub fn subst_level_params(env: Environment, expr: u64, params: Vec<u64>, args: Vec<u64>) -> u64 {
@@ -169,10 +331,27 @@ pub fn subst_level_params(env: Environment, expr: u64, params: Vec<u64>, args: V
     }
     if t == 2 {
         let name: u64 = env.exprs.f1[expr];
-        let lvls: Vec<u64> = expr_get_levels(env.exprs, expr);
-        let new_lvls: Vec<u64> = subst_levels(env, lvls, params, args);
-        if new_lvls == lvls {
+        let start: u64 = env.exprs.f2[expr];
+        let n: u64 = env.exprs.f3[expr];
+        let mut changed: u64 = 0;
+        let mut i: u64 = 0;
+        while i < n {
+            let old_l: u64 = env.exprs.level_pool[start + i];
+            let new_l: u64 = subst_level(env, old_l, params, args);
+            if new_l != old_l {
+                changed = 1;
+                i = n;
+            }
+            i = i + 1;
+        }
+        if changed == 0 {
             return expr;
+        }
+        let mut new_lvls: Vec<u64> = Vec::new();
+        let mut j: u64 = 0;
+        while j < n {
+            new_lvls.push(subst_level(env, env.exprs.level_pool[start + j], params, args));
+            j = j + 1;
         }
         return expr_add_const(env.exprs, name, new_lvls);
     }

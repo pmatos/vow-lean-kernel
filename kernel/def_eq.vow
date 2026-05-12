@@ -299,11 +299,10 @@ fn unfold_def_head(env: Environment, e: u64) -> u64 {
     if lk.kind != 1 {
         if lk.kind != 3 { return e; }
     }
-    let mut levels: Vec<u64> = Vec::new();
-    if lk.level_params.len() > 0 {
-        levels = expr_get_levels(env.exprs, head);
+    let mut val: u64 = lk.val;
+    if env.decl_lps[lk.idx].len() > 0 {
+        val = subst_level_params_const_args(env, lk.val, env.decl_lps[lk.idx], head);
     }
-    let val: u64 = subst_level_params(env, lk.val, lk.level_params, levels);
     let mut result: u64 = val;
     let mut i: u64 = args.len();
     while i > 0 {

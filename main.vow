@@ -199,6 +199,9 @@ fn main() -> i32 [io, read] {
         }
         pei = pei + 1;
     }
+    env.decl_names.truncate(0);
+    env.decl_name_hashes.truncate(0);
+    env.rec_lps.truncate(0);
     let expr_watermark: u64 = env.exprs.tags.len();
     let level_watermark: u64 = env.levels.tags.len();
 
@@ -219,7 +222,7 @@ fn main() -> i32 [io, read] {
             print_str(String::from("FAIL decl "));
             print_u64(di);
             print_str(String::from(" name="));
-            print_str(env.decl_names[di]);
+            print_str(name_to_string(env.names, env.decl_name_ids[di]));
             print_str(String::from(" kind="));
             print_u64(env.decl_kinds[di]);
             print_str(String::from("\n"));
@@ -236,7 +239,7 @@ fn main() -> i32 [io, read] {
             print_str(String::from("DIAG decl "));
             print_u64(di);
             print_str(String::from(" name="));
-            print_str(env.decl_names[di]);
+            print_str(name_to_string(env.names, env.decl_name_ids[di]));
             print_str(String::from(" kind="));
             print_u64(env.decl_kinds[di]);
             print_str(String::from(" r="));

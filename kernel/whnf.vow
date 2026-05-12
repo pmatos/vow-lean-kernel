@@ -694,11 +694,10 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
               if lookup.kind == 1 || lookup.kind == 3 {
                 let should_unfold: u64 = if lookup.kind == 3 { 1 } else { if do_delta > 1 { 1 } else { if lookup.height == 0 { 1 } else { 0 } } };
                 if should_unfold > 0 {
-                    let mut levels: Vec<u64> = Vec::new();
-                    if lookup.level_params.len() > 0 {
-                        levels = expr_get_levels(env.exprs, head);
+                    let mut val: u64 = lookup.val;
+                    if env.decl_lps[lookup.idx].len() > 0 {
+                        val = subst_level_params_const_args(env, lookup.val, env.decl_lps[lookup.idx], head);
                     }
-                    let val: u64 = subst_level_params(env, lookup.val, lookup.level_params, levels);
                     cur = rebuild_apps(env, val, args);
                     reduced = 1;
                 }
@@ -733,7 +732,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             if reduced == 0 && lookup.found > 0 && lookup.kind == 7 {
                 let rec_idx: u64 = lookup.val;
                 let mut levels: Vec<u64> = Vec::new();
-                if lookup.level_params.len() > 0 {
+                if env.decl_lps[lookup.idx].len() > 0 {
                     levels = expr_get_levels(env.exprs, head);
                 }
                 let np: u64 = env.rec_num_params[rec_idx];
@@ -781,7 +780,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 rri = rri + 1;
                             }
                             if found_rule > 0 && major_args.len() >= rule_nfields {
-                                let rhs: u64 = subst_level_params(env, rule_rhs, lookup.level_params, levels);
+                                let rhs: u64 = subst_level_params(env, rule_rhs, env.decl_lps[lookup.idx], levels);
                                 let ppm: u64 = np + nm + nmi;
                                 let mut result: u64 = rhs;
                                 let mut ai: u64 = 0;
@@ -820,8 +819,8 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             let ind_lk_k: DeclLookup = env_lookup_name(env, rec_name_data_k.parent);
                             let mut k_ok: u64 = 0;
                             if ind_lk_k.found > 0 && ind_lk_k.kind == 5 {
-                                let ind_nlp: u64 = ind_lk_k.level_params.len();
-                                let rec_nlp: u64 = lookup.level_params.len();
+                                let ind_nlp: u64 = env.decl_lps[ind_lk_k.idx].len();
+                                let rec_nlp: u64 = env.decl_lps[lookup.idx].len();
                                 let mut ctor_levels: Vec<u64> = Vec::new();
                                 let mut cli: u64 = rec_nlp - ind_nlp;
                                 while cli < rec_nlp {
@@ -845,7 +844,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 }
                             }
                             if k_ok > 0 {
-                                let rhs_k: u64 = subst_level_params(env, rule_rhs_k, lookup.level_params, levels);
+                                let rhs_k: u64 = subst_level_params(env, rule_rhs_k, env.decl_lps[lookup.idx], levels);
                                 let ppm_k: u64 = np + nm + nmi;
                                 let mut result_k: u64 = rhs_k;
                                 let mut ai_k: u64 = 0;
@@ -884,8 +883,8 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 if nf_e > 0 {
                                   let rs_e: u64 = env.rec_rule_start[rec_idx];
                                   let ctor_name_e: u64 = env.rec_rule_ctors[rs_e];
-                                  let ind_nlp_e: u64 = ind_lk_e.level_params.len();
-                                  let rec_nlp_e: u64 = lookup.level_params.len();
+                                  let ind_nlp_e: u64 = env.decl_lps[ind_lk_e.idx].len();
+                                  let rec_nlp_e: u64 = env.decl_lps[lookup.idx].len();
                                   let mut ctor_levels_e: Vec<u64> = Vec::new();
                                   let mut cli_e: u64 = rec_nlp_e - ind_nlp_e;
                                   while cli_e < rec_nlp_e {

@@ -55,14 +55,13 @@ fn infer_const(env: Environment, expr: u64) -> u64 {
         return err_val();
     }
     let level_count: u64 = expr_level_count(env.exprs, expr);
-    if level_count != lookup.level_params.len() {
+    if level_count != env.decl_lps[lookup.idx].len() {
         return err_val();
     }
-    if lookup.level_params.len() == 0 {
+    if env.decl_lps[lookup.idx].len() == 0 {
         return lookup.ty;
     }
-    let levels: Vec<u64> = expr_get_levels(env.exprs, expr);
-    return subst_level_params(env, lookup.ty, lookup.level_params, levels);
+    return subst_level_params_const_args(env, lookup.ty, env.decl_lps[lookup.idx], expr);
 }
 
 fn is_def_eq_pi(env: Environment, e1: u64, e2: u64) -> u64 {
@@ -187,7 +186,7 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
 
     // Prop-projection check
     let ind_ty: u64 = env.ind_type_tys[env.ind_type_start[ind_idx]];
-    let ind_lps: Vec<u64> = ind_lk.level_params;
+    let ind_lps: Vec<u64> = env.decl_lps[ind_lk.idx];
     let ind_ty_subst: u64 = subst_level_params(env, ind_ty, ind_lps, struct_levels);
     let mut ind_sort_ty: u64 = ind_ty_subst;
     let mut skip_params: u64 = 0;
