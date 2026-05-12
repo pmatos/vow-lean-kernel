@@ -203,6 +203,138 @@ pub fn nat_value(env: Environment, e: u64) -> u64 {
     return 4294967294;
 }
 
+fn is_const_name(env: Environment, expr: u64, name_idx: u64) -> u64 {
+    if expr < env.exprs.tags.len() {
+        if env.exprs.tags[expr] == 2 {
+            if env.exprs.f1[expr] == name_idx { return 1; }
+        }
+    }
+    return 0;
+}
+
+fn int_of_nat_expr(env: Environment, n: u64) -> u64 {
+    return expr_add_app(env.exprs, expr_add_const0(env.exprs, env.name_int_of_nat), expr_add_nat_lit(env.exprs, n));
+}
+
+fn int_neg_nat_expr(env: Environment, n: u64) -> u64 {
+    if n == 0 { return int_of_nat_expr(env, 0); }
+    return expr_add_app(env.exprs, expr_add_const0(env.exprs, env.name_int_neg_succ), expr_add_nat_lit(env.exprs, n - 1));
+}
+
+fn int_nonneg_nat_value(env: Environment, expr: u64) -> u64 {
+    if expr < env.exprs.tags.len() {
+        let mut raw_args: Vec<u64> = Vec::new();
+        let mut raw_head: u64 = expr;
+        while raw_head < env.exprs.tags.len() && env.exprs.tags[raw_head] == 3 {
+            raw_args.push(env.exprs.f2[raw_head]);
+            raw_head = env.exprs.f1[raw_head];
+        }
+        if raw_head < env.exprs.tags.len() && env.exprs.tags[raw_head] == 2 {
+            let raw_name: u64 = env.exprs.f1[raw_head];
+            if raw_name == env.name_int_of_nat && raw_args.len() >= 1 {
+                return nat_value(env, raw_args[raw_args.len() - 1]);
+            }
+            if raw_name == env.name_ofnat_ofnat && raw_args.len() >= 3 {
+                if is_const_name(env, raw_args[raw_args.len() - 1], env.name_int) > 0 {
+                    return nat_value(env, raw_args[raw_args.len() - 2]);
+                }
+            }
+            if raw_name == env.name_hpow_hpow && raw_args.len() >= 6 {
+                if is_const_name(env, raw_args[raw_args.len() - 1], env.name_int) > 0 {
+                    if is_const_name(env, raw_args[raw_args.len() - 2], env.name_nat) > 0 {
+                        if is_const_name(env, raw_args[raw_args.len() - 3], env.name_int) > 0 {
+                            let raw_base: u64 = int_nonneg_nat_value(env, raw_args[raw_args.len() - 5]);
+                            let raw_exp: u64 = nat_value(env, raw_args[raw_args.len() - 6]);
+                            if raw_base != 4294967294 && raw_exp != 4294967294 {
+                                if raw_base == 2 && raw_exp <= 63 {
+                                    let mut raw_result: u64 = 1;
+                                    let mut raw_i: u64 = 0;
+                                    while raw_i < raw_exp { raw_result = raw_result * 2; raw_i = raw_i + 1; }
+                                    return raw_result;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let w: u64 = whnf(env, expr);
+    if w >= env.exprs.tags.len() { return 4294967294; }
+    let mut args: Vec<u64> = Vec::new();
+    let mut head: u64 = w;
+    while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
+        args.push(env.exprs.f2[head]);
+        head = env.exprs.f1[head];
+    }
+    if head >= env.exprs.tags.len() || env.exprs.tags[head] != 2 { return 4294967294; }
+    let name_idx: u64 = env.exprs.f1[head];
+    if name_idx == env.name_int_of_nat && args.len() >= 1 {
+        return nat_value(env, args[args.len() - 1]);
+    }
+    if name_idx == env.name_ofnat_ofnat && args.len() >= 3 {
+        if is_const_name(env, args[args.len() - 1], env.name_int) > 0 {
+            return nat_value(env, args[args.len() - 2]);
+        }
+    }
+    if name_idx == env.name_hpow_hpow && args.len() >= 6 {
+        if is_const_name(env, args[args.len() - 1], env.name_int) > 0 {
+            if is_const_name(env, args[args.len() - 2], env.name_nat) > 0 {
+                if is_const_name(env, args[args.len() - 3], env.name_int) > 0 {
+                    let base: u64 = int_nonneg_nat_value(env, args[args.len() - 5]);
+                    let exp: u64 = nat_value(env, args[args.len() - 6]);
+                    if base != 4294967294 && exp != 4294967294 {
+                        if base == 2 && exp <= 63 {
+                            let mut result: u64 = 1;
+                            let mut i: u64 = 0;
+                            while i < exp { result = result * 2; i = i + 1; }
+                            return result;
+                        }
+                        if exp <= 20 {
+                            let mut result2: u64 = 1;
+                            let mut j: u64 = 0;
+                            while j < exp { result2 = result2 * base; j = j + 1; }
+                            return result2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return 4294967294;
+}
+
+fn bitvec64_value(env: Environment, expr: u64) -> u64 {
+    let w: u64 = whnf(env, expr);
+    if w >= env.exprs.tags.len() { return 4294967294; }
+    let mut args: Vec<u64> = Vec::new();
+    let mut head: u64 = w;
+    while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
+        args.push(env.exprs.f2[head]);
+        head = env.exprs.f1[head];
+    }
+    if head >= env.exprs.tags.len() || env.exprs.tags[head] != 2 { return 4294967294; }
+    let name_idx: u64 = env.exprs.f1[head];
+    if name_idx == env.name_bitvec_of_nat && args.len() >= 2 {
+        let width: u64 = nat_value(env, args[args.len() - 1]);
+        if width == 64 {
+            return nat_value(env, args[args.len() - 2]);
+        }
+    }
+    if name_idx == env.name_bitvec_neg && args.len() >= 2 {
+        let width2: u64 = nat_value(env, args[args.len() - 1]);
+        if width2 == 64 {
+            let val: u64 = bitvec64_value(env, args[args.len() - 2]);
+            if val != 4294967294 {
+                if val == 0 { return 0; }
+                let max_u64: u64 = 18446744073709551615;
+                return max_u64 - val + 1;
+            }
+        }
+    }
+    return 4294967294;
+}
+
 pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return expr;
@@ -297,6 +429,42 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 reduced = 1;
                             }
                         }
+                        if reduced == 0 && env.exprs.f1[ty_arg_on] == env.name_int {
+                            let n_arg_int: u64 = nat_value(env, args[args.len() - 2]);
+                            if n_arg_int != 4294967294 {
+                                cur = rebuild_apps_skip(env, int_of_nat_expr(env, n_arg_int), args, 3);
+                                reduced = 1;
+                            }
+                        }
+                    }
+                }
+            }
+            if reduced == 0 && args.len() >= 3 {
+                if name_idx == env.name_neg_neg {
+                    if is_const_name(env, args[args.len() - 1], env.name_int) > 0 {
+                        let n_neg: u64 = int_nonneg_nat_value(env, args[args.len() - 3]);
+                        if n_neg != 4294967294 {
+                            cur = rebuild_apps_skip(env, int_neg_nat_expr(env, n_neg), args, 3);
+                            reduced = 1;
+                        }
+                    }
+                }
+            }
+            if reduced == 0 && args.len() >= 1 {
+                if name_idx == env.name_int_neg {
+                    let n_int_neg: u64 = int_nonneg_nat_value(env, args[args.len() - 1]);
+                    if n_int_neg != 4294967294 {
+                        cur = rebuild_apps_skip(env, int_neg_nat_expr(env, n_int_neg), args, 1);
+                        reduced = 1;
+                    }
+                }
+            }
+            if reduced == 0 && args.len() >= 1 {
+                if name_idx == env.name_int64_to_int {
+                    let arg_i64: u64 = whnf_no_delta(env, args[args.len() - 1]);
+                    if is_const_name(env, arg_i64, env.name_int64_min_value) > 0 {
+                        cur = rebuild_apps_skip(env, int_neg_nat_expr(env, 9223372036854775808), args, 1);
+                        reduced = 1;
                     }
                 }
             }
@@ -329,6 +497,27 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 while pi_pw < exp_pw { result_str_pw = nat_str_mul(result_str_pw, base_str_pw); pi_pw = pi_pw + 1; }
                                 cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, result_str_pw), args, 5);
                                 reduced = 1;
+                            }
+                        }
+                    }
+                }
+            }
+            if reduced == 0 && args.len() >= 6 {
+                if name_idx == env.name_hpow_hpow {
+                    if is_const_name(env, args[args.len() - 1], env.name_int) > 0 {
+                        if is_const_name(env, args[args.len() - 2], env.name_nat) > 0 {
+                            if is_const_name(env, args[args.len() - 3], env.name_int) > 0 {
+                                let base_int: u64 = int_nonneg_nat_value(env, args[args.len() - 5]);
+                                let exp_int: u64 = nat_value(env, args[args.len() - 6]);
+                                if base_int != 4294967294 && exp_int != 4294967294 {
+                                    if base_int == 2 && exp_int <= 63 {
+                                        let mut pv_int: u64 = 1;
+                                        let mut pi_int: u64 = 0;
+                                        while pi_int < exp_int { pv_int = pv_int * 2; pi_int = pi_int + 1; }
+                                        cur = rebuild_apps_skip(env, int_of_nat_expr(env, pv_int), args, 6);
+                                        reduced = 1;
+                                    }
+                                }
                             }
                         }
                     }
@@ -378,6 +567,46 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                     cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, result_str_cn), args, 6);
                                     reduced = 1;
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+            if reduced == 0 && args.len() >= 2 {
+                if name_idx == env.name_bitvec_neg {
+                    let width_bvn: u64 = nat_value(env, args[args.len() - 1]);
+                    if width_bvn == 64 {
+                        let val_bvn: u64 = bitvec64_value(env, args[args.len() - 2]);
+                        if val_bvn != 4294967294 {
+                            let mut neg_bvn: u64 = 0;
+                            if val_bvn > 0 {
+                                let max_u64_bvn: u64 = 18446744073709551615;
+                                neg_bvn = max_u64_bvn - val_bvn + 1;
+                            }
+                            let bv_head: u64 = expr_add_const0(env.exprs, env.name_bitvec_of_nat);
+                            let bv_app1: u64 = expr_add_app(env.exprs, bv_head, args[args.len() - 1]);
+                            let bv_app2: u64 = expr_add_app(env.exprs, bv_app1, expr_add_nat_lit(env.exprs, neg_bvn));
+                            cur = rebuild_apps_skip(env, bv_app2, args, 2);
+                            reduced = 1;
+                        }
+                    }
+                }
+            }
+            if reduced == 0 && args.len() >= 2 {
+                if name_idx == env.name_bitvec_to_int {
+                    let width_bvi: u64 = nat_value(env, args[args.len() - 1]);
+                    if width_bvi == 64 {
+                        let val_bvi: u64 = bitvec64_value(env, args[args.len() - 2]);
+                        if val_bvi != 4294967294 {
+                            let sign_bit: u64 = 9223372036854775808;
+                            if val_bvi < sign_bit {
+                                cur = rebuild_apps_skip(env, int_of_nat_expr(env, val_bvi), args, 2);
+                                reduced = 1;
+                            } else {
+                                let max_u64_bvi: u64 = 18446744073709551615;
+                                let abs_bvi: u64 = max_u64_bvi - val_bvi + 1;
+                                cur = rebuild_apps_skip(env, int_neg_nat_expr(env, abs_bvi), args, 2);
+                                reduced = 1;
                             }
                         }
                     }
