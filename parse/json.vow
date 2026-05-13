@@ -53,13 +53,13 @@ pub fn json_skip_value(s: String, pos: u64) -> u64 {
         return i;
     }
     if b == 116 {
-        return match_keyword(s, p, String::from("true"));
+        return match_keyword(s, p, "true");
     }
     if b == 102 {
-        return match_keyword(s, p, String::from("false"));
+        return match_keyword(s, p, "false");
     }
     if b == 110 {
-        return match_keyword(s, p, String::from("null"));
+        return match_keyword(s, p, "null");
     }
     if b == 45 || (b >= 48 && b <= 57) {
         let mut i: u64 = p;
