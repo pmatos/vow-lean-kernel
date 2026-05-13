@@ -148,7 +148,7 @@ fn main() -> i32 [io, read] {
 
     if env.dup_error > 0 {
         eprintln_str(String::from("error: duplicate or invalid declaration metadata"));
-        return exit_internal_error();
+        return 1i32;
     }
     env_init_builtin_names(env);
 
