@@ -235,10 +235,13 @@ fn main() -> i32 [io, read] {
             declined = 1;
         }
         // Diagnostic dump around affected decls and on decline
+        let arena_peak: u64 = env.exprs.tags.len();
+        let arena_delta: u64 = arena_peak - expr_watermark;
         let mut want_dump: u64 = 0;
         if di >= 2030 && di <= 2085 { want_dump = 1; }
         if r == 2 { want_dump = 1; }
         if env.cnt_is_def_eq_full > 200000 { want_dump = 1; }
+        if arena_delta > 50000 { want_dump = 1; }
         if want_dump > 0 {
             print_str(String::from("DIAG decl "));
             print_u64(di);
@@ -248,6 +251,10 @@ fn main() -> i32 [io, read] {
             print_u64(env.decl_kinds[di]);
             print_str(String::from(" r="));
             print_u64(r);
+            print_str(String::from(" peak="));
+            print_u64(arena_peak);
+            print_str(String::from(" delta="));
+            print_u64(arena_delta);
             print_str(String::from(" fuel="));
             print_u64(env.kernel_fuel);
             print_str(String::from(" infer_u="));
