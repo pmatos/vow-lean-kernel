@@ -215,22 +215,23 @@ pub fn expr_arena_import_id(arena: ExprArena, id: u64, actual: u64) {
         arena.f3.push(arena.f3[actual]);
         arena.f4.push(arena.f4[actual]);
         arena.bi.push(arena.bi[actual]);
-        arena.nondep.push(arena.nondep[actual]);
-        let start: u64 = arena.level_start[actual];
-        let n: u64 = arena.level_len[actual];
-        let new_start: u64 = arena.level_pool.len();
-        let mut i: u64 = 0;
-        while i < n {
-            arena.level_pool.push(arena.level_pool[start + i]);
-            i = i + 1;
+        if arena.tags[actual] == 2 {
+            let start: u64 = arena.f2[actual];
+            let n: u64 = arena.f3[actual];
+            let new_start: u64 = arena.level_pool.len();
+            let mut i: u64 = 0;
+            while i < n {
+                arena.level_pool.push(arena.level_pool[start + i]);
+                i = i + 1;
+            }
+            arena.f2[arena.tags.len() - 1] = new_start;
         }
-        arena.level_start.push(new_start);
-        arena.level_len.push(n);
-        arena.lit_kind.push(arena.lit_kind[actual]);
-        arena.lit_val.push(arena.lit_val[actual]);
-        arena.lbr.push(arena.lbr[actual]);
-        arena.infer_cache.push(4294967294);
-        arena.whnf_cache.push(4294967294);
+        if arena.tags[actual] == 7 {
+            let lit_idx: u64 = arena.lit_val.len();
+            arena.lit_val.push(arena.lit_val[arena.f2[actual]]);
+            arena.f2[arena.tags.len() - 1] = lit_idx;
+        }
+        arena.cache.push(cache_empty_value());
         arena.hash_next.push(chain_nil());
     }
 }
