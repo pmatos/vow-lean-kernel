@@ -1,0 +1,76 @@
+module Main
+
+// Reproducer: a struct-owned Vec grown intra-iteration to a strictly
+// larger peak each cycle, then truncated back to a small baseline,
+// retains physical memory beyond what the maximum *live* size requires.
+//
+// This is the pattern vow-lean-kernel hits in its per-declaration
+// checking loop: each iteration grows the expression arena Vecs to a
+// per-decl peak, then truncates them back to the post-parse watermark
+// before the next declaration. When a later declaration has a higher
+// peak than any prior one, RSS grows to accommodate it and never
+// drops, even after the truncate. The cumulative growth across many
+// decls eventually exceeds the 8 GB ulimit and OOMs the process even
+// though the live arena never exceeds ~6 GB.
+//
+// Build:  /home/pmatos/dev/vow-lang/vow/build/vowc build --no-verify \
+//           -o /tmp/vec_leak repro/vec_truncate_no_release.vow
+// Run:    /usr/bin/time -v /tmp/vec_leak
+//
+// Expected with proper release: max RSS ~= peak live size ~ 80 MB
+//                                plus Vow runtime overhead.
+// Observed: max RSS noticeably exceeds 80 MB because pages from
+// intermediate reallocations during growth are retained.
+
+pub struct Arena {
+    data: Vec<u64>,
+}
+
+fn arena_new() -> Arena {
+    return Arena { data: Vec::new() };
+}
+
+fn fill(arena: Arena, n: u64) {
+    let mut i: u64 = 0;
+    while i < n {
+        arena.data.push(i);
+        i = i + 1;
+    }
+}
+
+fn reset_to(arena: Arena, watermark: u64) {
+    arena.data.truncate(watermark);
+}
+
+fn main() -> i32 [io] {
+    let arena: Arena = arena_new();
+
+    // Small "parsed" baseline.
+    fill(arena, 100000);
+    let watermark: u64 = arena.data.len();
+
+    // Each cycle pushes a strictly larger intra-decl peak than the
+    // previous one. After truncation the live length is back to the
+    // watermark every time. Peak live size across the whole program
+    // is `watermark + 10_000_000` (~80 MB). With release, RSS should
+    // top out near 80 MB. Without release, it climbs because every
+    // cycle's growth requires a fresh allocation (old pages aren't
+    // recycled by the arena).
+    let cycles: u64 = 10;
+    let mut c: u64 = 0;
+    while c < cycles {
+        let extra: u64 = 1000000 + c * 1000000;  // 1M, 2M, ..., 10M
+        fill(arena, extra);
+        let peak: u64 = arena.data.len();
+        reset_to(arena, watermark);
+        print_str(String::from("cycle "));
+        print_u64(c);
+        print_str(String::from(" intra_peak="));
+        print_u64(peak);
+        print_str(String::from(" after_truncate="));
+        print_u64(arena.data.len());
+        print_str(String::from("\n"));
+        c = c + 1;
+    }
+    return 0i32;
+}
