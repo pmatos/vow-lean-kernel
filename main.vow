@@ -202,6 +202,10 @@ fn main() -> i32 [io, read] {
     env.decl_names.truncate(0);
     env.decl_name_hashes.truncate(0);
     env.rec_lps.truncate(0);
+    // Build name_idx → decl_idx reverse index used by env_lookup_name.
+    // Must run AFTER parsing fills decl_name_ids and AFTER PProd/PSigma proj
+    // canonicalization above (so the Proj rewrite doesn't shift any decls).
+    env_build_name_index(env);
     let expr_watermark: u64 = env.exprs.tags.len();
     let level_watermark: u64 = env.levels.tags.len();
 
