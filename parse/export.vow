@@ -305,11 +305,9 @@ fn parse_axiom_decl(env: Environment, line: String) -> bool {
     let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, ax_pos, "name"))).val;
     let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, ax_pos, "levelParams"))).vals;
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, ax_pos, "type"))).val;
-    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, ax_pos, "isUnsafe")));
 
     let name_str: String = name_to_string(env.names, name);
-    let decl: AxiomDecl = AxiomDecl { name: name, level_params: level_params, ty: ty, is_unsafe: is_unsafe };
-    env_add_decl_full(env, name_str, 0, ty, 0, level_params, DeclEntry::Axiom { decl: decl }, name);
+    env_add_decl_full(env, name_str, 0, ty, 0, level_params, name);
     return true;
 }
 
@@ -319,9 +317,6 @@ fn parse_def_decl(env: Environment, line: String) -> bool {
     let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, def_pos, "levelParams"))).vals;
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, def_pos, "type"))).val;
     let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, def_pos, "value"))).val;
-    let hints: DefHint = parse_def_hints(line, unwrap_pos(json_find_key(line, def_pos, "hints")));
-    let safety: Safety = parse_safety(line, unwrap_pos(json_find_key(line, def_pos, "safety")));
-    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, def_pos, "all"))).vals;
 
     let mut def_height: u64 = 0;
     let hints_pos2: u64 = unwrap_pos(json_find_key(line, def_pos, "hints"));
@@ -334,8 +329,7 @@ fn parse_def_decl(env: Environment, line: String) -> bool {
     }
 
     let name_str: String = name_to_string(env.names, name);
-    let decl: DefinitionDecl = DefinitionDecl { name: name, level_params: level_params, ty: ty, val: val, hints: hints, safety: safety, all: all };
-    env_add_decl_full_h(env, name_str, 1, ty, val, level_params, DeclEntry::Definition { decl: decl }, def_height, name);
+    env_add_decl_full_h(env, name_str, 1, ty, val, level_params, def_height, name);
     return true;
 }
 
@@ -345,11 +339,9 @@ fn parse_thm_decl(env: Environment, line: String) -> bool {
     let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, thm_pos, "levelParams"))).vals;
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, thm_pos, "type"))).val;
     let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, thm_pos, "value"))).val;
-    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, thm_pos, "all"))).vals;
 
     let name_str: String = name_to_string(env.names, name);
-    let decl: TheoremDecl = TheoremDecl { name: name, level_params: level_params, ty: ty, val: val, all: all };
-    env_add_decl_full(env, name_str, 2, ty, val, level_params, DeclEntry::Theorem { decl: decl }, name);
+    env_add_decl_full(env, name_str, 2, ty, val, level_params, name);
     return true;
 }
 
@@ -359,12 +351,9 @@ fn parse_opaque_decl(env: Environment, line: String) -> bool {
     let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, op_pos, "levelParams"))).vals;
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, op_pos, "type"))).val;
     let val: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, op_pos, "value"))).val;
-    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, op_pos, "isUnsafe")));
-    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, op_pos, "all"))).vals;
 
     let name_str: String = name_to_string(env.names, name);
-    let decl: OpaqueDecl = OpaqueDecl { name: name, level_params: level_params, ty: ty, val: val, is_unsafe: is_unsafe, all: all };
-    env_add_decl_full(env, name_str, 3, ty, val, level_params, DeclEntry::Opaque { decl: decl }, name);
+    env_add_decl_full(env, name_str, 3, ty, val, level_params, name);
     return true;
 }
 
@@ -373,7 +362,6 @@ fn parse_quot_decl(env: Environment, line: String) -> bool {
     let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, qt_pos, "name"))).val;
     let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, qt_pos, "levelParams"))).vals;
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, qt_pos, "type"))).val;
-    let kind: QuotKind = parse_quot_kind(line, unwrap_pos(json_find_key(line, qt_pos, "kind")));
 
     let kind_str: ParseStrResult = json_parse_string(line, unwrap_pos(json_find_key(line, qt_pos, "kind")));
     let mut qk: u64 = 0;
@@ -381,8 +369,7 @@ fn parse_quot_decl(env: Environment, line: String) -> bool {
     if kind_str.val.len() == 4 && kind_str.val.byte_at(0) == 108 { qk = 2; }
     if kind_str.val.len() == 3 { qk = 3; }
     let name_str: String = name_to_string(env.names, name);
-    let decl: QuotDecl = QuotDecl { name: name, level_params: level_params, ty: ty, kind: kind };
-    env_add_decl_full(env, name_str, 4, ty, qk, level_params, DeclEntry::Quot { decl: decl }, name);
+    env_add_decl_full(env, name_str, 4, ty, qk, level_params, name);
     return true;
 }
 
@@ -392,18 +379,10 @@ fn parse_one_inductive_type(line: String, pos: u64) -> InductiveType {
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "type"))).val;
     let num_params: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numParams"))).val;
     let num_indices: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numIndices"))).val;
-    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, "all"))).vals;
-    let ctors: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, "ctors"))).vals;
-    let num_nested: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numNested"))).val;
-    let is_rec: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, "isRec")));
-    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, "isUnsafe")));
-    let is_reflexive: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, "isReflexive")));
 
     return InductiveType {
         name: name, level_params: level_params, ty: ty,
         num_params: num_params, num_indices: num_indices,
-        all: all, ctors: ctors, num_nested: num_nested,
-        is_rec: is_rec, is_unsafe: is_unsafe, is_reflexive: is_reflexive,
     };
 }
 
@@ -415,13 +394,11 @@ fn parse_one_constructor(line: String, pos: u64) -> ConstructorDecl {
     let cidx: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "cidx"))).val;
     let num_params: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numParams"))).val;
     let num_fields: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numFields"))).val;
-    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, "isUnsafe")));
 
     return ConstructorDecl {
         name: name, level_params: level_params, ty: ty,
         induct: induct, cidx: cidx,
         num_params: num_params, num_fields: num_fields,
-        is_unsafe: is_unsafe,
     };
 }
 
@@ -436,27 +413,16 @@ fn parse_one_recursor(line: String, pos: u64) -> RecursorDecl {
     let name: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "name"))).val;
     let level_params: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, "levelParams"))).vals;
     let ty: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "type"))).val;
-    let all: Vec<u64> = json_parse_uint_array(line, unwrap_pos(json_find_key(line, pos, "all"))).vals;
     let num_params: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numParams"))).val;
     let num_indices: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numIndices"))).val;
     let num_motives: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numMotives"))).val;
     let num_minors: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, pos, "numMinors"))).val;
     let k: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, "k")));
-    let is_unsafe: bool = json_parse_bool(line, unwrap_pos(json_find_key(line, pos, "isUnsafe")));
-
-    let rules_pos: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, pos, "rules")));
-    let mut rules: Vec<RecursorRule> = Vec::new();
-    let mut ri: u64 = 0;
-    while ri < rules_pos.len() {
-        rules.push(parse_one_recursor_rule(line, rules_pos[ri]));
-        ri = ri + 1;
-    }
 
     return RecursorDecl {
-        name: name, level_params: level_params, ty: ty, all: all,
+        name: name, level_params: level_params, ty: ty,
         num_params: num_params, num_indices: num_indices,
-        num_motives: num_motives, num_minors: num_minors,
-        rules: rules, k: k, is_unsafe: is_unsafe,
+        num_motives: num_motives, num_minors: num_minors, k: k,
     };
 }
 

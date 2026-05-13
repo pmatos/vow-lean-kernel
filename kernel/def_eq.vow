@@ -188,15 +188,13 @@ pub fn is_level_eq(env: Environment, l1: u64, l2: u64) -> u64 {
 }
 
 fn is_levels_eq_at(env: Environment, idx1: u64, idx2: u64) -> u64 {
-    let n: u64 = env.exprs.level_len[idx1];
-    if env.exprs.level_len[idx2] != n {
+    let n: u64 = expr_level_count(env.exprs, idx1);
+    if expr_level_count(env.exprs, idx2) != n {
         return 0;
     }
-    let s1: u64 = env.exprs.level_start[idx1];
-    let s2: u64 = env.exprs.level_start[idx2];
     let mut i: u64 = 0;
     while i < n {
-        if is_level_eq(env, env.exprs.level_pool[s1 + i], env.exprs.level_pool[s2 + i]) == 0 {
+        if is_level_eq(env, expr_level_at(env.exprs, idx1, i), expr_level_at(env.exprs, idx2, i)) == 0 {
             return 0;
         }
         i = i + 1;
@@ -216,6 +214,16 @@ fn is_level_leq_no_eq(env: Environment, a: u64, b: u64) -> u64 {
     }
     if env.levels.tags[na] == 1 && env.levels.tags[nb] == 1 {
         return is_level_leq_no_eq(env, env.levels.f1[na], env.levels.f1[nb]);
+    }
+    if env.levels.tags[na] == 1 {
+        let pred: u64 = env.levels.f1[na];
+        if env.levels.tags[pred] == 2 {
+            let sl: u64 = level_add_succ(env.levels, env.levels.f1[pred]);
+            let sr: u64 = level_add_succ(env.levels, env.levels.f2[pred]);
+            if is_level_leq_no_eq(env, sl, nb) > 0 && is_level_leq_no_eq(env, sr, nb) > 0 {
+                return 1;
+            }
+        }
     }
     if env.levels.tags[nb] == 1 {
         if is_level_leq_no_eq(env, na, env.levels.f1[nb]) > 0 { return 1; }
@@ -249,6 +257,16 @@ pub fn is_level_leq(env: Environment, a: u64, b: u64) -> u64 {
     if env.levels.tags[na] == 1 && env.levels.tags[nb] == 1 {
         return is_level_leq(env, env.levels.f1[na], env.levels.f1[nb]);
     }
+    if env.levels.tags[na] == 1 {
+        let pred: u64 = env.levels.f1[na];
+        if env.levels.tags[pred] == 2 {
+            let sl: u64 = level_add_succ(env.levels, env.levels.f1[pred]);
+            let sr: u64 = level_add_succ(env.levels, env.levels.f2[pred]);
+            if is_level_leq(env, sl, nb) > 0 && is_level_leq(env, sr, nb) > 0 {
+                return 1;
+            }
+        }
+    }
     if env.levels.tags[nb] == 1 {
         if is_level_leq(env, na, env.levels.f1[nb]) > 0 { return 1; }
     }
@@ -276,14 +294,15 @@ fn unfold_def_head(env: Environment, e: u64) -> u64 {
         head = env.exprs.f1[head];
     }
     if head >= env.exprs.tags.len() || env.exprs.tags[head] != 2 { return e; }
-    let name_str: String = name_to_string(env.names, env.exprs.f1[head]);
-    let levels: Vec<u64> = expr_get_levels(env.exprs, head);
-    let lk: DeclLookup = env_lookup(env, name_str);
+    let lk: DeclLookup = env_lookup_name(env, env.exprs.f1[head]);
     if lk.found == 0 { return e; }
     if lk.kind != 1 {
         if lk.kind != 3 { return e; }
     }
-    let val: u64 = subst_level_params(env, lk.val, lk.level_params, levels);
+    let mut val: u64 = lk.val;
+    if env.decl_lps[lk.idx].len() > 0 {
+        val = subst_level_params_const_args(env, lk.val, env.decl_lps[lk.idx], head);
+    }
     let mut result: u64 = val;
     let mut i: u64 = args.len();
     while i > 0 {
@@ -291,6 +310,37 @@ fn unfold_def_head(env: Environment, e: u64) -> u64 {
         result = expr_add_app(env.exprs, result, args[i]);
     }
     return whnf_abbrev(env, result);
+}
+
+fn app_head(env: Environment, e: u64) -> u64 {
+    let mut head: u64 = e;
+    while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
+        head = env.exprs.f1[head];
+    }
+    return head;
+}
+
+fn app_arg_count(env: Environment, e: u64) -> u64 {
+    let mut n: u64 = 0;
+    let mut cur: u64 = e;
+    while cur < env.exprs.tags.len() && env.exprs.tags[cur] == 3 {
+        n = n + 1;
+        cur = env.exprs.f1[cur];
+    }
+    return n;
+}
+
+fn app_arg_at(env: Environment, e: u64, pos: u64) -> u64 {
+    let mut cur: u64 = e;
+    let mut i: u64 = 0;
+    while i < pos && cur < env.exprs.tags.len() && env.exprs.tags[cur] == 3 {
+        cur = env.exprs.f1[cur];
+        i = i + 1;
+    }
+    if cur < env.exprs.tags.len() && env.exprs.tags[cur] == 3 {
+        return env.exprs.f2[cur];
+    }
+    return 0;
 }
 
 // Structural equality after WHNF — no extension rules, cannot cycle.
@@ -306,14 +356,7 @@ fn whnf_structural_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if t1 == 0 || t1 == 10 { if env.exprs.f1[w1] == env.exprs.f1[w2] { return 1; } return 0; }
     if t1 == 1 { return is_level_eq(env, env.exprs.f1[w1], env.exprs.f1[w2]); }
     if t1 == 2 {
-        let mut nm: u64 = 0;
-        if env.exprs.f1[w1] == env.exprs.f1[w2] { nm = 1; }
-        if nm == 0 {
-            let s1: String = name_to_string(env.names, env.exprs.f1[w1]);
-            let s2: String = name_to_string(env.names, env.exprs.f1[w2]);
-            if str_eq(s1, s2) > 0 { nm = 1; }
-        }
-        if nm > 0 { return is_levels_eq_at(env, w1, w2); }
+        if env.exprs.f1[w1] == env.exprs.f1[w2] { return is_levels_eq_at(env, w1, w2); }
         return 0;
     }
     if t1 == 3 {
@@ -346,8 +389,8 @@ fn whnf_structural_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         return 0;
     }
     if t1 == 7 {
-        if env.exprs.lit_kind[w1] == env.exprs.lit_kind[w2] {
-            if str_eq(env.exprs.lit_val[w1], env.exprs.lit_val[w2]) > 0 { return 1; }
+        if expr_lit_kind(env.exprs, w1) == expr_lit_kind(env.exprs, w2) {
+            if expr_lit_eq(env.exprs, w1, w2) > 0 { return 1; }
         }
         return 0;
     }
@@ -360,42 +403,22 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
     let struct_name: u64 = env.exprs.f1[proj];
     let proj_idx: u64 = env.exprs.f2[proj];
     let proj_expr: u64 = env.exprs.f3[proj];
-    let mut rargs: Vec<u64> = Vec::new();
-    let mut rhead: u64 = app;
-    while rhead < env.exprs.tags.len() && env.exprs.tags[rhead] == 3 {
-        rargs.push(env.exprs.f2[rhead]);
-        rhead = env.exprs.f1[rhead];
-    }
+    let rhead: u64 = app_head(env, app);
     if rhead >= env.exprs.tags.len() || env.exprs.tags[rhead] != 2 { return 0; }
-    let rec_name_str: String = name_to_string(env.names, env.exprs.f1[rhead]);
-    let rec_lk: DeclLookup = env_lookup(env, rec_name_str);
+    let rec_lk: DeclLookup = env_lookup_name(env, env.exprs.f1[rhead]);
     if rec_lk.found == 0 { return 0; }
     if rec_lk.kind != 7 { return 0; }
-    let mut rec_idx: u64 = 0;
-    let mut found_rec: u64 = 0;
-    let mut ri: u64 = 0;
-    while ri < env.rec_names.len() {
-        let ri_name_str: String = name_to_string(env.names, env.rec_names[ri]);
-        if str_eq(ri_name_str, rec_name_str) > 0 {
-            rec_idx = ri;
-            found_rec = 1;
-            ri = env.rec_names.len();
-        }
-        ri = ri + 1;
-    }
-    if found_rec == 0 { return 0; }
+    let rec_idx: u64 = rec_lk.val;
     let rec_nd_pr: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
     let ind_name_pr: u64 = rec_nd_pr.parent;
-    let ind_str_pr: String = name_to_string(env.names, ind_name_pr);
-    let ind_lk_pr: DeclLookup = env_lookup(env, ind_str_pr);
+    let ind_lk_pr: DeclLookup = env_lookup_name(env, ind_name_pr);
     if ind_lk_pr.found == 0 { return 0; }
     if ind_lk_pr.kind != 5 { return 0; }
     let ind_idx: u64 = ind_lk_pr.val;
-    let struct_name_str: String = name_to_string(env.names, struct_name);
     // Allow cross-type Proj-rec equivalence (e.g., PProd Proj vs Prod.rec)
     // when both are single-constructor structs with matching field counts
-    if str_eq(ind_str_pr, struct_name_str) == 0 {
-        let proj_lk: DeclLookup = env_lookup(env, struct_name_str);
+    if ind_name_pr != struct_name {
+        let proj_lk: DeclLookup = env_lookup_name(env, struct_name);
         if proj_lk.found == 0 || proj_lk.kind != 5 { return 0; }
         let proj_ind_idx: u64 = proj_lk.val;
         if env.ind_ctor_count[proj_ind_idx] != 1 { return 0; }
@@ -411,11 +434,12 @@ fn try_proj_rec_eq(env: Environment, proj: u64, app: u64) -> u64 {
     let nmi: u64 = env.rec_num_minors[rec_idx];
     let ni: u64 = env.rec_num_indices[rec_idx];
     let total_before_major: u64 = np + nm + nmi + ni;
-    if rargs.len() < total_before_major + 1 { return 0; }
-    let major: u64 = rargs[0];
+    let rarg_len: u64 = app_arg_count(env, app);
+    if rarg_len < total_before_major + 1 { return 0; }
+    let major: u64 = app_arg_at(env, app, 0);
     let minor_pos: u64 = 1 + ni;
-    if minor_pos >= rargs.len() { return 0; }
-    let minor: u64 = rargs[minor_pos];
+    if minor_pos >= rarg_len { return 0; }
+    let minor: u64 = app_arg_at(env, app, minor_pos);
     let cs: u64 = env.ind_ctor_start[ind_idx];
     let nf: u64 = env.ind_ctor_num_fields[cs];
     if proj_idx >= nf { return 0; }
@@ -469,8 +493,7 @@ fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
     let mut ht1: u64 = 0;
     let mut ht2: u64 = 0;
     if h1 < env.exprs.tags.len() && env.exprs.tags[h1] == 2 {
-        let n1s: String = name_to_string(env.names, env.exprs.f1[h1]);
-        let lk1: DeclLookup = env_lookup(env, n1s);
+        let lk1: DeclLookup = env_lookup_name(env, env.exprs.f1[h1]);
         if lk1.found > 0 {
             if lk1.kind == 1 || lk1.kind == 3 {
                 is_def1 = 1;
@@ -479,8 +502,7 @@ fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
         }
     }
     if h2 < env.exprs.tags.len() && env.exprs.tags[h2] == 2 {
-        let n2s: String = name_to_string(env.names, env.exprs.f1[h2]);
-        let lk2: DeclLookup = env_lookup(env, n2s);
+        let lk2: DeclLookup = env_lookup_name(env, env.exprs.f1[h2]);
         if lk2.found > 0 {
             if lk2.kind == 1 || lk2.kind == 3 {
                 is_def2 = 1;
@@ -512,12 +534,59 @@ fn lazy_delta_step(env: Environment, w1: u64, w2: u64) -> u64 {
     return is_def_eq(env, u1, u2);
 }
 
+fn def_eq_cache_hash(env: Environment, e1: u64, e2: u64) -> u64 {
+    let mut a: u64 = e1;
+    let mut b: u64 = e2;
+    if b < a {
+        let tmp: u64 = a;
+        a = b;
+        b = tmp;
+    }
+    return (a * 40503 + b * 65537) % env.def_eq_cache_v.len();
+}
+
+fn def_eq_cache_lookup(env: Environment, e1: u64, e2: u64) -> u64 {
+    if expr_lbr(env.exprs, e1) > 0 { return 0; }
+    if expr_lbr(env.exprs, e2) > 0 { return 0; }
+    let mut a: u64 = e1;
+    let mut b: u64 = e2;
+    if b < a {
+        let tmp: u64 = a;
+        a = b;
+        b = tmp;
+    }
+    let h: u64 = def_eq_cache_hash(env, a, b);
+    if env.def_eq_cache_v[h] > 0 {
+        if env.def_eq_cache_l[h] == a && env.def_eq_cache_r[h] == b {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+fn def_eq_cache_store(env: Environment, e1: u64, e2: u64) {
+    if expr_lbr(env.exprs, e1) > 0 { return; }
+    if expr_lbr(env.exprs, e2) > 0 { return; }
+    let mut a: u64 = e1;
+    let mut b: u64 = e2;
+    if b < a {
+        let tmp: u64 = a;
+        a = b;
+        b = tmp;
+    }
+    let h: u64 = def_eq_cache_hash(env, a, b);
+    env.def_eq_cache_l[h] = a;
+    env.def_eq_cache_r[h] = b;
+    env.def_eq_cache_v[h] = 1;
+}
+
 // Full-WHNF def_eq for non-App structural checks (Lambda bodies, extensions)
 fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
     let w1: u64 = whnf(env, e1);
     let w2: u64 = whnf(env, e2);
     if w1 == w2 { return 1; }
+    if def_eq_cache_lookup(env, w1, w2) > 0 { return 1; }
     env.kernel_fuel = env.kernel_fuel + 1;
     if env.kernel_fuel > 5000000 { return 0; }
     env.cnt_is_def_eq_full = env.cnt_is_def_eq_full + 1;
@@ -527,6 +596,9 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
         return 0;
     }
     let result: u64 = is_def_eq_core(env, w1, w2);
+    if result > 0 {
+        def_eq_cache_store(env, w1, w2);
+    }
     env.def_eq_depth = env.def_eq_depth - 1;
     return result;
 }
@@ -586,24 +658,20 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r:
             }
         }
         // Lazy delta: find def heads
-        let mut h1: u64 = w1;
-        let mut h2: u64 = w2;
-        while h1 < env.exprs.tags.len() && env.exprs.tags[h1] == 3 { h1 = env.exprs.f1[h1]; }
-        while h2 < env.exprs.tags.len() && env.exprs.tags[h2] == 3 { h2 = env.exprs.f1[h2]; }
+        let h1: u64 = app_head(env, w1);
+        let h2: u64 = app_head(env, w2);
         let mut d1: u64 = 0;
         let mut d2: u64 = 0;
         let mut ht1: u64 = 0;
         let mut ht2: u64 = 0;
         if h1 < env.exprs.tags.len() && env.exprs.tags[h1] == 2 {
-            let n1s: String = name_to_string(env.names, env.exprs.f1[h1]);
-            let lk1: DeclLookup = env_lookup(env, n1s);
+            let lk1: DeclLookup = env_lookup_name(env, env.exprs.f1[h1]);
             if lk1.found > 0 {
                 if lk1.kind == 1 || lk1.kind == 3 { d1 = 1; ht1 = lk1.height; }
             }
         }
         if h2 < env.exprs.tags.len() && env.exprs.tags[h2] == 2 {
-            let n2s: String = name_to_string(env.names, env.exprs.f1[h2]);
-            let lk2: DeclLookup = env_lookup(env, n2s);
+            let lk2: DeclLookup = env_lookup_name(env, env.exprs.f1[h2]);
             if lk2.found > 0 {
                 if lk2.kind == 1 || lk2.kind == 3 { d2 = 1; ht2 = lk2.height; }
             }
@@ -624,6 +692,7 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r:
 
 pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
+    if def_eq_cache_lookup(env, e1, e2) > 0 { return 1; }
     // At deep recursion, fall back to full-WHNF (avoids stack explosion)
     env.def_eq_depth = env.def_eq_depth + 1;
     if env.def_eq_depth > 256 {
@@ -646,6 +715,9 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         }
     }
     env.def_eq_depth = env.def_eq_depth - 1;
+    if ok > 0 {
+        def_eq_cache_store(env, e1, e2);
+    }
     return ok;
 }
 
@@ -660,16 +732,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             structural_done = 1;
         }
         if t1 == 2 {
-            let mut name_match: u64 = 0;
             if env.exprs.f1[w1] == env.exprs.f1[w2] {
-                name_match = 1;
-            }
-            if name_match == 0 {
-                let n1s: String = name_to_string(env.names, env.exprs.f1[w1]);
-                let n2s: String = name_to_string(env.names, env.exprs.f1[w2]);
-                if str_eq(n1s, n2s) > 0 { name_match = 1; }
-            }
-            if name_match > 0 {
                 if is_levels_eq_at(env, w1, w2) > 0 { return 1; }
             }
             structural_done = 1;
@@ -754,9 +817,9 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             structural_done = 1;
         }
         if t1 == 7 {
-            let lk1: u64 = env.exprs.lit_kind[w1];
-            let lk2: u64 = env.exprs.lit_kind[w2];
-            if lk1 == lk2 && str_eq(env.exprs.lit_val[w1], env.exprs.lit_val[w2]) > 0 { return 1; }
+            let lk1: u64 = expr_lit_kind(env.exprs, w1);
+            let lk2: u64 = expr_lit_kind(env.exprs, w2);
+            if lk1 == lk2 && expr_lit_eq(env.exprs, w1, w2) > 0 { return 1; }
             structural_done = 1;
         }
     }
@@ -826,19 +889,12 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             }
         }
     }
-
     if is_err(pi_ty) == 0 {
         let eta_ty_w: u64 = whnf(env, pi_ty);
-        let mut eta_args: Vec<u64> = Vec::new();
-        let mut eta_head: u64 = eta_ty_w;
-        while eta_head < env.exprs.tags.len() && env.exprs.tags[eta_head] == 3 {
-            eta_args.push(env.exprs.f2[eta_head]);
-            eta_head = env.exprs.f1[eta_head];
-        }
+        let eta_head: u64 = app_head(env, eta_ty_w);
         if eta_head < env.exprs.tags.len() && env.exprs.tags[eta_head] == 2 {
             let eta_name_idx: u64 = env.exprs.f1[eta_head];
-            let eta_name_str: String = name_to_string(env.names, eta_name_idx);
-            let eta_lk: DeclLookup = env_lookup(env, eta_name_str);
+            let eta_lk: DeclLookup = env_lookup_name(env, eta_name_idx);
             if eta_lk.found > 0 && eta_lk.kind == 5 {
                 let eta_ind_idx: u64 = eta_lk.val;
                 let eta_cc: u64 = env.ind_ctor_count[eta_ind_idx];
@@ -857,18 +913,14 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                     // is_def_eq_full(w1,w2), creating a kernel_fuel-bounded cycle (issue #3).
                     let mut w1_is_ctor: u64 = 0;
                     let mut w2_is_ctor: u64 = 0;
-                    let mut sh1: u64 = w1;
-                    while sh1 < env.exprs.tags.len() && env.exprs.tags[sh1] == 3 { sh1 = env.exprs.f1[sh1]; }
+                    let sh1: u64 = app_head(env, w1);
                     if sh1 < env.exprs.tags.len() && env.exprs.tags[sh1] == 2 {
-                        let n1: String = name_to_string(env.names, env.exprs.f1[sh1]);
-                        let lk1: DeclLookup = env_lookup(env, n1);
+                        let lk1: DeclLookup = env_lookup_name(env, env.exprs.f1[sh1]);
                         if lk1.found > 0 && lk1.kind == 6 { w1_is_ctor = 1; }
                     }
-                    let mut sh2: u64 = w2;
-                    while sh2 < env.exprs.tags.len() && env.exprs.tags[sh2] == 3 { sh2 = env.exprs.f1[sh2]; }
+                    let sh2: u64 = app_head(env, w2);
                     if sh2 < env.exprs.tags.len() && env.exprs.tags[sh2] == 2 {
-                        let n2: String = name_to_string(env.names, env.exprs.f1[sh2]);
-                        let lk2: DeclLookup = env_lookup(env, n2);
+                        let lk2: DeclLookup = env_lookup_name(env, env.exprs.f1[sh2]);
                         if lk2.found > 0 && lk2.kind == 6 { w2_is_ctor = 1; }
                     }
                     if w1_is_ctor > 0 || w2_is_ctor > 0 {
