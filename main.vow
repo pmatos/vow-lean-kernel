@@ -234,14 +234,18 @@ fn main() -> i32 [io, read] {
         } else if r == 2 {
             declined = 1;
         }
-        // Diagnostic dump around affected decls and on decline
+        // Diagnostic dump on decline or expensive decls. Thresholds set
+        // high enough that the dump fires on only a few hundred decls per
+        // full init.ndjson run — each dump's String::from() allocations
+        // escape to the root region (see vow-lang/vow issue tracker on
+        // RegionRootEscape notes) so dumping every cluster bloats memory.
         let arena_peak: u64 = env.exprs.tags.len();
         let arena_delta: u64 = arena_peak - expr_watermark;
         let mut want_dump: u64 = 0;
-        if di >= 2030 && di <= 2085 { want_dump = 1; }
         if r == 2 { want_dump = 1; }
         if env.cnt_is_def_eq_full > 200000 { want_dump = 1; }
-        if arena_delta > 50000 { want_dump = 1; }
+        if arena_delta > 500000 { want_dump = 1; }
+        if env.kernel_fuel > 100000 { want_dump = 1; }
         if want_dump > 0 {
             print_str(String::from("DIAG decl "));
             print_u64(di);
@@ -296,16 +300,17 @@ fn main() -> i32 [io, read] {
             }
             print_str(String::from("]\n"));
         }
-        expr_arena_clear_caches(env.exprs);
+        expr_arena_clear_dirty_caches(env.exprs);
         expr_arena_truncate(env.exprs, expr_watermark);
         level_arena_truncate(env.levels, level_watermark);
         env.def_eq_lhs.truncate(0);
         env.def_eq_rhs.truncate(0);
         let mut dci: u64 = 0;
-        while dci < env.def_eq_cache_v.len() {
-            env.def_eq_cache_v[dci] = 0;
+        while dci < env.def_eq_cache_dirty.len() {
+            env.def_eq_cache_v[env.def_eq_cache_dirty[dci]] = 0;
             dci = dci + 1;
         }
+        env.def_eq_cache_dirty.truncate(0);
         env.def_eq_depth = 0;
         env.whnf_depth = 0;
         env.kernel_fuel = 0;
