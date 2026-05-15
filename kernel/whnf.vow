@@ -1141,12 +1141,14 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             }
 
             if reduced == 0 {
-                let mut s_args: Vec<u64> = Vec::new();
+                // Layer s_args on top of the outer whnf_core slice in scratch_args.
+                let s_args_base: u64 = env.exprs.scratch_args.len();
                 let mut s_head: u64 = w_struct;
                 while s_head < env.exprs.tags.len() && env.exprs.tags[s_head] == 3 {
-                    s_args.push(env.exprs.f2[s_head]);
+                    env.exprs.scratch_args.push(env.exprs.f2[s_head]);
                     s_head = env.exprs.f1[s_head];
                 }
+                let s_args_len: u64 = env.exprs.scratch_args.len() - s_args_base;
                 if s_head < env.exprs.tags.len() && env.exprs.tags[s_head] == 2 {
                     let ctor_lk: DeclLookup = env_lookup_name(env, env.exprs.f1[s_head]);
                     if ctor_lk.found > 0 && ctor_lk.kind == 6 {
@@ -1156,9 +1158,9 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             let cs: u64 = env.ind_ctor_start[ind_idx];
                             let np: u64 = env.ind_ctor_num_params[cs];
                             let nf: u64 = env.ind_ctor_num_fields[cs];
-                            if proj_idx < nf && s_args.len() >= np + nf {
-                                let field_pos: u64 = s_args.len() - 1 - np - proj_idx;
-                                cur = rebuild_apps_range(env, s_args[field_pos], env.exprs.scratch_args, arg_base, arg_base + num_args);
+                            if proj_idx < nf && s_args_len >= np + nf {
+                                let field_pos: u64 = s_args_len - 1 - np - proj_idx;
+                                cur = rebuild_apps_range(env, env.exprs.scratch_args[s_args_base + field_pos], env.exprs.scratch_args, arg_base, arg_base + num_args);
                                 reduced = 1;
                             }
                         }
