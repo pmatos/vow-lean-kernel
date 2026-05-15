@@ -12,6 +12,17 @@ pub struct ExprArena {
     cache: Vec<u64>,
     bucket_head: Vec<u64>,
     hash_next: Vec<u64>,
+    // Indices of cache slots written since the last reset. Per-decl clear walks
+    // only this list instead of every entry, turning O(arena) clears into
+    // O(entries touched).
+    cache_dirty: Vec<u64>,
+    // Shared scratch stack for app-spine args. Hot paths (whnf_core, infer,
+    // various rebuild_apps) used to allocate a fresh Vec<u64> per call; Vow's
+    // region inference routes those allocations to the root region (see
+    // RegionRootEscape notes at build time) so they leaked over the 50k+ decls
+    // of init.ndjson. Stack discipline (record base on entry, truncate back on
+    // exit) lets nested callers share the same Vec without conflict.
+    scratch_args: Vec<u64>,
 }
 
 fn chain_nil() -> u64 {
@@ -37,6 +48,8 @@ pub fn expr_arena_new() -> ExprArena {
         cache: Vec::new(),
         bucket_head: heads,
         hash_next: Vec::new(),
+        cache_dirty: Vec::new(),
+        scratch_args: Vec::new(),
     };
 }
 
@@ -98,11 +111,17 @@ pub fn expr_whnf_cache_get(arena: ExprArena, idx: u64) -> u64 {
 
 pub fn expr_infer_cache_set(arena: ExprArena, idx: u64, val: u64) {
     let whnf: u64 = expr_whnf_cache_get(arena, idx);
+    if arena.cache[idx] == cache_empty_value() {
+        arena.cache_dirty.push(idx);
+    }
     arena.cache[idx] = cache_pack(val, whnf);
 }
 
 pub fn expr_whnf_cache_set(arena: ExprArena, idx: u64, val: u64) {
     let infer: u64 = expr_infer_cache_get(arena, idx);
+    if arena.cache[idx] == cache_empty_value() {
+        arena.cache_dirty.push(idx);
+    }
     arena.cache[idx] = cache_pack(infer, val);
 }
 
@@ -438,6 +457,22 @@ pub fn expr_arena_clear_caches(arena: ExprArena) {
         arena.cache[i] = cache_empty_value();
         i = i + 1;
     }
+    arena.cache_dirty.truncate(0);
+}
+
+// Walks the dirty list and clears only the cache slots that were actually
+// written since the last reset. Entries >= arena.cache.len() (e.g. already
+// truncated) are skipped.
+pub fn expr_arena_clear_dirty_caches(arena: ExprArena) {
+    let mut i: u64 = 0;
+    while i < arena.cache_dirty.len() {
+        let idx: u64 = arena.cache_dirty[i];
+        if idx < arena.cache.len() {
+            arena.cache[idx] = cache_empty_value();
+        }
+        i = i + 1;
+    }
+    arena.cache_dirty.truncate(0);
 }
 
 pub fn expr_arena_truncate(arena: ExprArena, size: u64) {

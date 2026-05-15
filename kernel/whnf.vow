@@ -140,6 +140,28 @@ fn rebuild_apps_skip(env: Environment, head: u64, args: Vec<u64>, skip: u64) -> 
     return result;
 }
 
+// Range-based rebuild over a shared scratch Vec. Applies args[lo..hi] to head
+// in reverse order. The caller passes the shared env.exprs.scratch_args so the
+// underlying Vec stays in one root-region allocation across calls instead of
+// being freshly allocated per whnf_core iteration.
+fn rebuild_apps_range(env: Environment, head: u64, args: Vec<u64>, lo: u64, hi: u64) -> u64 {
+    let mut result: u64 = head;
+    let mut i: u64 = hi;
+    while i > lo {
+        i = i - 1;
+        result = expr_add_app(env.exprs, result, args[i]);
+    }
+    return result;
+}
+
+// rebuild_apps_skip but parameterised on the slice [lo..hi - skip).
+fn rebuild_apps_skip_range(env: Environment, head: u64, args: Vec<u64>, lo: u64, hi: u64, skip: u64) -> u64 {
+    if hi - lo <= skip {
+        return head;
+    }
+    return rebuild_apps_range(env, head, args, lo, hi - skip);
+}
+
 pub fn whnf_no_delta(env: Environment, expr: u64) -> u64 {
     env.whnf_depth = env.whnf_depth + 1;
     if env.whnf_depth > 1024 {
@@ -460,24 +482,28 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             return cur;
         }
 
-        let mut args: Vec<u64> = Vec::new();
+        // Use the shared scratch_args Vec on the arena instead of a fresh
+        // Vec<u64> per iteration. Each call records its base on entry and
+        // truncates back before any exit/continue so recursive whnf_core
+        // invocations can layer their own slices on top.
+        let arg_base: u64 = env.exprs.scratch_args.len();
         let mut head: u64 = cur;
         let mut peeling: u64 = 1;
         while peeling > 0 {
             if env.exprs.tags[head] == 3 {
-                args.push(env.exprs.f2[head]);
+                env.exprs.scratch_args.push(env.exprs.f2[head]);
                 head = env.exprs.f1[head];
             } else {
                 peeling = 0;
             }
         }
+        let num_args: u64 = env.exprs.scratch_args.len() - arg_base;
 
         let ht: u64 = env.exprs.tags[head];
         let mut reduced: u64 = 0;
 
         if ht == 4 {
-            if args.len() > 0 {
-                let num_args: u64 = args.len();
+            if num_args > 0 {
                 let mut num_lambdas: u64 = 0;
                 let mut lam_cur: u64 = head;
                 let mut lam_scanning: u64 = 1;
@@ -501,13 +527,13 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     skip = skip + 1;
                 }
                 let offset: u64 = num_args - batch;
-                let new_head: u64 = instantiate_rev(env, inner_body, args, offset, batch);
+                let new_head: u64 = instantiate_rev(env, inner_body, env.exprs.scratch_args, arg_base + offset, batch);
                 let mut rebuilt: u64 = new_head;
                 if offset > 0 {
                     let mut ri: u64 = offset;
                     while ri > 0 {
                         ri = ri - 1;
-                        rebuilt = expr_add_app(env.exprs, rebuilt, args[ri]);
+                        rebuilt = expr_add_app(env.exprs, rebuilt, env.exprs.scratch_args[arg_base + ri]);
                     }
                 }
                 cur = rebuilt;
@@ -517,64 +543,64 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             let val: u64 = env.exprs.f3[head];
             let body: u64 = env.exprs.f4[head];
             let new_head: u64 = instantiate(env, body, val);
-            cur = rebuild_apps(env, new_head, args);
+            cur = rebuild_apps_range(env, new_head, env.exprs.scratch_args, arg_base, arg_base + num_args);
             reduced = 1;
         } else if ht == 2 {
             let name_idx: u64 = env.exprs.f1[head];
-            if reduced == 0 && args.len() >= 3 {
+            if reduced == 0 && num_args >= 3 {
                 if name_idx == env.name_ofnat_ofnat {
-                    let ty_arg_on: u64 = args[args.len() - 1];
+                    let ty_arg_on: u64 = env.exprs.scratch_args[arg_base + num_args - 1];
                     if ty_arg_on < env.exprs.tags.len() && env.exprs.tags[ty_arg_on] == 2 {
                         if env.exprs.f1[ty_arg_on] == env.name_nat {
-                            let n_arg_on: u64 = whnf(env, args[args.len() - 2]);
+                            let n_arg_on: u64 = whnf(env, env.exprs.scratch_args[arg_base + num_args - 2]);
                             if n_arg_on < env.exprs.tags.len() && env.exprs.tags[n_arg_on] == 7 && expr_lit_kind(env.exprs, n_arg_on) == 0 {
-                                cur = rebuild_apps_skip(env, n_arg_on, args, 3);
+                                cur = rebuild_apps_skip_range(env, n_arg_on, env.exprs.scratch_args, arg_base, arg_base + num_args, 3);
                                 reduced = 1;
                             }
                         }
                         if reduced == 0 && env.exprs.f1[ty_arg_on] == env.name_int {
-                            let n_arg_int: u64 = nat_value(env, args[args.len() - 2]);
+                            let n_arg_int: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 2]);
                             if n_arg_int != 4294967294 {
-                                cur = rebuild_apps_skip(env, int_of_nat_expr(env, n_arg_int), args, 3);
+                                cur = rebuild_apps_skip_range(env, int_of_nat_expr(env, n_arg_int), env.exprs.scratch_args, arg_base, arg_base + num_args, 3);
                                 reduced = 1;
                             }
                         }
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 3 {
+            if reduced == 0 && num_args >= 3 {
                 if name_idx == env.name_neg_neg {
-                    if is_const_name(env, args[args.len() - 1], env.name_int) > 0 {
-                        let n_neg: u64 = int_nonneg_nat_value(env, args[args.len() - 3]);
+                    if is_const_name(env, env.exprs.scratch_args[arg_base + num_args - 1], env.name_int) > 0 {
+                        let n_neg: u64 = int_nonneg_nat_value(env, env.exprs.scratch_args[arg_base + num_args - 3]);
                         if n_neg != 4294967294 {
-                            cur = rebuild_apps_skip(env, int_neg_nat_expr(env, n_neg), args, 3);
+                            cur = rebuild_apps_skip_range(env, int_neg_nat_expr(env, n_neg), env.exprs.scratch_args, arg_base, arg_base + num_args, 3);
                             reduced = 1;
                         }
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 1 {
+            if reduced == 0 && num_args >= 1 {
                 if name_idx == env.name_int_neg {
-                    let n_int_neg: u64 = int_nonneg_nat_value(env, args[args.len() - 1]);
+                    let n_int_neg: u64 = int_nonneg_nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
                     if n_int_neg != 4294967294 {
-                        cur = rebuild_apps_skip(env, int_neg_nat_expr(env, n_int_neg), args, 1);
+                        cur = rebuild_apps_skip_range(env, int_neg_nat_expr(env, n_int_neg), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
                         reduced = 1;
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 1 {
+            if reduced == 0 && num_args >= 1 {
                 if name_idx == env.name_int64_to_int {
-                    let arg_i64: u64 = whnf_no_delta(env, args[args.len() - 1]);
+                    let arg_i64: u64 = whnf_no_delta(env, env.exprs.scratch_args[arg_base + num_args - 1]);
                     if is_const_name(env, arg_i64, env.name_int64_min_value) > 0 {
-                        cur = rebuild_apps_skip(env, int_neg_nat_expr(env, 9223372036854775808), args, 1);
+                        cur = rebuild_apps_skip_range(env, int_neg_nat_expr(env, 9223372036854775808), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
                         reduced = 1;
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 5 {
+            if reduced == 0 && num_args >= 5 {
                 if name_idx == env.name_pow_pow {
-                    let ty_a_pw: u64 = args[args.len() - 1];
-                    let ty_b_pw: u64 = args[args.len() - 2];
+                    let ty_a_pw: u64 = env.exprs.scratch_args[arg_base + num_args - 1];
+                    let ty_b_pw: u64 = env.exprs.scratch_args[arg_base + num_args - 2];
                     let mut nat_tys_pw: u64 = 0;
                     if ty_a_pw < env.exprs.tags.len() && ty_b_pw < env.exprs.tags.len() {
                         if env.exprs.tags[ty_a_pw] == 2 && env.exprs.tags[ty_b_pw] == 2 {
@@ -584,33 +610,33 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         }
                     }
                     if nat_tys_pw > 0 {
-                        let base_pw: u64 = nat_value(env, args[args.len() - 4]);
-                        let exp_pw: u64 = nat_value(env, args[args.len() - 5]);
+                        let base_pw: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 4]);
+                        let exp_pw: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 5]);
                         if base_pw != 4294967294 && exp_pw != 4294967294 && exp_pw <= 256 {
                             let pow_pw: NatChecked = nat_pow_checked(base_pw, exp_pw);
                             if pow_pw.ok > 0 {
-                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pow_pw.val), args, 5);
+                                cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, pow_pw.val), env.exprs.scratch_args, arg_base, arg_base + num_args, 5);
                             } else {
-                                cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, nat_pow_string(base_pw, exp_pw)), args, 5);
+                                cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_pow_string(base_pw, exp_pw)), env.exprs.scratch_args, arg_base, arg_base + num_args, 5);
                             }
                             reduced = 1;
                         }
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 6 {
+            if reduced == 0 && num_args >= 6 {
                 if name_idx == env.name_hpow_hpow {
-                    if is_const_name(env, args[args.len() - 1], env.name_int) > 0 {
-                        if is_const_name(env, args[args.len() - 2], env.name_nat) > 0 {
-                            if is_const_name(env, args[args.len() - 3], env.name_int) > 0 {
-                                let base_int: u64 = int_nonneg_nat_value(env, args[args.len() - 5]);
-                                let exp_int: u64 = nat_value(env, args[args.len() - 6]);
+                    if is_const_name(env, env.exprs.scratch_args[arg_base + num_args - 1], env.name_int) > 0 {
+                        if is_const_name(env, env.exprs.scratch_args[arg_base + num_args - 2], env.name_nat) > 0 {
+                            if is_const_name(env, env.exprs.scratch_args[arg_base + num_args - 3], env.name_int) > 0 {
+                                let base_int: u64 = int_nonneg_nat_value(env, env.exprs.scratch_args[arg_base + num_args - 5]);
+                                let exp_int: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 6]);
                                 if base_int != 4294967294 && exp_int != 4294967294 {
                                     if base_int == 2 && exp_int <= 63 {
                                         let mut pv_int: u64 = 1;
                                         let mut pi_int: u64 = 0;
                                         while pi_int < exp_int { pv_int = pv_int * 2; pi_int = pi_int + 1; }
-                                        cur = rebuild_apps_skip(env, int_of_nat_expr(env, pv_int), args, 6);
+                                        cur = rebuild_apps_skip_range(env, int_of_nat_expr(env, pv_int), env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                         reduced = 1;
                                     }
                                 }
@@ -619,15 +645,15 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 6 {
+            if reduced == 0 && num_args >= 6 {
                 let mut class_nat_op: u64 = 0;
                 if name_idx == env.name_hpow_hpow { class_nat_op = 13; }
                 if name_idx == env.name_hmod_hmod { class_nat_op = 5; }
                 if name_idx == env.name_hshiftleft_hshiftleft { class_nat_op = 11; }
                 if class_nat_op > 0 {
-                    let ty0_cn: u64 = args[args.len() - 1];
-                    let ty1_cn: u64 = args[args.len() - 2];
-                    let ty2_cn: u64 = args[args.len() - 3];
+                    let ty0_cn: u64 = env.exprs.scratch_args[arg_base + num_args - 1];
+                    let ty1_cn: u64 = env.exprs.scratch_args[arg_base + num_args - 2];
+                    let ty2_cn: u64 = env.exprs.scratch_args[arg_base + num_args - 3];
                     let mut nat_tys_cn: u64 = 0;
                     if ty0_cn < env.exprs.tags.len() && ty1_cn < env.exprs.tags.len() && ty2_cn < env.exprs.tags.len() {
                         if env.exprs.tags[ty0_cn] == 2 && env.exprs.tags[ty1_cn] == 2 && env.exprs.tags[ty2_cn] == 2 {
@@ -637,28 +663,28 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         }
                     }
                     if nat_tys_cn > 0 {
-                        let lhs_cn: u64 = nat_value(env, args[args.len() - 5]);
-                        let rhs_cn: u64 = nat_value(env, args[args.len() - 6]);
+                        let lhs_cn: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 5]);
+                        let rhs_cn: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 6]);
                         if lhs_cn != 4294967294 && rhs_cn != 4294967294 {
                             if class_nat_op == 5 {
-                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if rhs_cn == 0 { lhs_cn } else { lhs_cn % rhs_cn }), args, 6);
+                                cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, if rhs_cn == 0 { lhs_cn } else { lhs_cn % rhs_cn }), env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                 reduced = 1;
                             }
                             if class_nat_op == 11 && rhs_cn < 64 {
                                 let sh_cn: NatChecked = nat_shl_checked(lhs_cn, rhs_cn);
                                 if sh_cn.ok > 0 {
-                                    cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, sh_cn.val), args, 6);
+                                    cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, sh_cn.val), env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                 } else {
-                                    cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, nat_shl_string(lhs_cn, rhs_cn)), args, 6);
+                                    cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_shl_string(lhs_cn, rhs_cn)), env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                 }
                                 reduced = 1;
                             }
                             if class_nat_op == 13 && rhs_cn <= 256 {
                                 let pow_cn: NatChecked = nat_pow_checked(lhs_cn, rhs_cn);
                                 if pow_cn.ok > 0 {
-                                    cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pow_cn.val), args, 6);
+                                    cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, pow_cn.val), env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                 } else {
-                                    cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, nat_pow_string(lhs_cn, rhs_cn)), args, 6);
+                                    cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_pow_string(lhs_cn, rhs_cn)), env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                 }
                                 reduced = 1;
                             }
@@ -666,11 +692,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 2 {
+            if reduced == 0 && num_args >= 2 {
                 if name_idx == env.name_bitvec_neg {
-                    let width_bvn: u64 = nat_value(env, args[args.len() - 1]);
+                    let width_bvn: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
                     if width_bvn == 64 {
-                        let val_bvn: u64 = bitvec64_value(env, args[args.len() - 2]);
+                        let val_bvn: u64 = bitvec64_value(env, env.exprs.scratch_args[arg_base + num_args - 2]);
                         if val_bvn != 4294967294 {
                             let mut neg_bvn: u64 = 0;
                             if val_bvn > 0 {
@@ -678,42 +704,42 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 neg_bvn = max_u64_bvn - val_bvn + 1;
                             }
                             let bv_head: u64 = expr_add_const0(env.exprs, env.name_bitvec_of_nat);
-                            let bv_app1: u64 = expr_add_app(env.exprs, bv_head, args[args.len() - 1]);
+                            let bv_app1: u64 = expr_add_app(env.exprs, bv_head, env.exprs.scratch_args[arg_base + num_args - 1]);
                             let bv_app2: u64 = expr_add_app(env.exprs, bv_app1, expr_add_nat_lit(env.exprs, neg_bvn));
-                            cur = rebuild_apps_skip(env, bv_app2, args, 2);
+                            cur = rebuild_apps_skip_range(env, bv_app2, env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             reduced = 1;
                         }
                     }
                 }
             }
-            if reduced == 0 && args.len() >= 2 {
+            if reduced == 0 && num_args >= 2 {
                 if name_idx == env.name_bitvec_to_int {
-                    let width_bvi: u64 = nat_value(env, args[args.len() - 1]);
+                    let width_bvi: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
                     if width_bvi == 64 {
-                        let val_bvi: u64 = bitvec64_value(env, args[args.len() - 2]);
+                        let val_bvi: u64 = bitvec64_value(env, env.exprs.scratch_args[arg_base + num_args - 2]);
                         if val_bvi != 4294967294 {
                             let sign_bit: u64 = 9223372036854775808;
                             if val_bvi < sign_bit {
-                                cur = rebuild_apps_skip(env, int_of_nat_expr(env, val_bvi), args, 2);
+                                cur = rebuild_apps_skip_range(env, int_of_nat_expr(env, val_bvi), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                                 reduced = 1;
                             } else {
                                 let max_u64_bvi: u64 = 18446744073709551615;
                                 let abs_bvi: u64 = max_u64_bvi - val_bvi + 1;
-                                cur = rebuild_apps_skip(env, int_neg_nat_expr(env, abs_bvi), args, 2);
+                                cur = rebuild_apps_skip_range(env, int_neg_nat_expr(env, abs_bvi), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                                 reduced = 1;
                             }
                         }
                     }
                 }
             }
-            if args.len() >= 1 && name_idx == env.name_nat_succ {
-                let sv: u64 = nat_value(env, args[args.len() - 1]);
+            if num_args >= 1 && name_idx == env.name_nat_succ {
+                let sv: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
                 if sv != 4294967294 && sv < 4294967293 {
-                    cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, sv + 1), args, 1);
+                    cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, sv + 1), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
                     reduced = 1;
                 }
             }
-            if reduced == 0 && args.len() >= 2 {
+            if reduced == 0 && num_args >= 2 {
                 let mut is_nat_op: u64 = 0;
                 if name_idx == env.name_nat_add { is_nat_op = 1; }
                 if name_idx == env.name_nat_sub { is_nat_op = 2; }
@@ -729,71 +755,71 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 if name_idx == env.name_nat_shift_right { is_nat_op = 12; }
                 if name_idx == env.name_nat_pow { is_nat_op = 13; }
                 if is_nat_op > 0 {
-                    let va0: u64 = nat_value(env, args[args.len() - 1]);
-                    let va1: u64 = nat_value(env, args[args.len() - 2]);
+                    let va0: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
+                    let va1: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 2]);
                     if va0 != 4294967294 && va1 != 4294967294 {
                         if is_nat_op == 1 {
                             let sum: NatChecked = nat_add_checked(va0, va1);
                             if sum.ok > 0 {
-                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, sum.val), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, sum.val), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             } else {
-                                cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, nat_str_add(u64_to_string(va0), u64_to_string(va1))), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_str_add(u64_to_string(va0), u64_to_string(va1))), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             }
                             reduced = 1;
                         }
-                        if is_nat_op == 2 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if va0 >= va1 { va0 - va1 } else { 0 }), args, 2); reduced = 1; }
+                        if is_nat_op == 2 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, if va0 >= va1 { va0 - va1 } else { 0 }), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
                         if is_nat_op == 3 {
                             let prod: NatChecked = nat_mul_checked(va0, va1);
                             if prod.ok > 0 {
-                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, prod.val), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, prod.val), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             } else {
-                                cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, nat_str_mul(u64_to_string(va0), u64_to_string(va1))), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_str_mul(u64_to_string(va0), u64_to_string(va1))), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             }
                             reduced = 1;
                         }
-                        if is_nat_op == 4 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if va1 == 0 { 0 } else { va0 / va1 }), args, 2); reduced = 1; }
-                        if is_nat_op == 5 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, if va1 == 0 { va0 } else { va0 % va1 }), args, 2); reduced = 1; }
+                        if is_nat_op == 4 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, if va1 == 0 { 0 } else { va0 / va1 }), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
+                        if is_nat_op == 5 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, if va1 == 0 { va0 } else { va0 % va1 }), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
                         if is_nat_op == 6 || is_nat_op == 7 {
                             let mut bval: u64 = 0;
                             if is_nat_op == 6 { bval = if va0 <= va1 { 1 } else { 0 }; }
                             if is_nat_op == 7 { bval = if va0 == va1 { 1 } else { 0 }; }
                             let bname: u64 = if bval > 0 { env.name_bool_true } else { env.name_bool_false };
-                            cur = rebuild_apps_skip(env, expr_add_const0(env.exprs, bname), args, 2);
+                            cur = rebuild_apps_skip_range(env, expr_add_const0(env.exprs, bname), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             reduced = 1;
                         }
-                        if is_nat_op == 8 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitand(va0, va1)), args, 2); reduced = 1; }
-                        if is_nat_op == 9 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitor(va0, va1)), args, 2); reduced = 1; }
-                        if is_nat_op == 10 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_bitxor(va0, va1)), args, 2); reduced = 1; }
+                        if is_nat_op == 8 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, nat_bitand(va0, va1)), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
+                        if is_nat_op == 9 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, nat_bitor(va0, va1)), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
+                        if is_nat_op == 10 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, nat_bitxor(va0, va1)), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
                         if is_nat_op == 11 && va1 < 64 {
                             let sh: NatChecked = nat_shl_checked(va0, va1);
                             if sh.ok > 0 {
-                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, sh.val), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, sh.val), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             } else {
-                                cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, nat_shl_string(va0, va1)), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_shl_string(va0, va1)), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             }
                             reduced = 1;
                         }
-                        if is_nat_op == 12 { cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, nat_shr(va0, va1)), args, 2); reduced = 1; }
+                        if is_nat_op == 12 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, nat_shr(va0, va1)), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
                         if is_nat_op == 13 && va1 <= 256 {
                             let pow: NatChecked = nat_pow_checked(va0, va1);
                             if pow.ok > 0 {
-                                cur = rebuild_apps_skip(env, expr_add_nat_lit(env.exprs, pow.val), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, pow.val), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             } else {
-                                cur = rebuild_apps_skip(env, expr_add_lit_nat(env.exprs, nat_pow_string(va0, va1)), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_pow_string(va0, va1)), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                             }
                             reduced = 1;
                         }
                     }
                     if reduced == 0 && (is_nat_op == 6 || is_nat_op == 7) {
-                        let w0: u64 = whnf(env, args[args.len() - 1]);
-                        let w1: u64 = whnf(env, args[args.len() - 2]);
+                        let w0: u64 = whnf(env, env.exprs.scratch_args[arg_base + num_args - 1]);
+                        let w1: u64 = whnf(env, env.exprs.scratch_args[arg_base + num_args - 2]);
                         if w0 < env.exprs.tags.len() && w1 < env.exprs.tags.len() {
                             if env.exprs.tags[w0] == 7 && expr_lit_kind(env.exprs, w0) == 0 && env.exprs.tags[w1] == 7 && expr_lit_kind(env.exprs, w1) == 0 {
                                 let mut bval: u64 = 0;
                                 if is_nat_op == 6 { bval = expr_lit_nat_ble(env.exprs, w0, w1); }
                                 if is_nat_op == 7 { bval = expr_lit_eq(env.exprs, w0, w1); }
                                 let bname: u64 = if bval > 0 { env.name_bool_true } else { env.name_bool_false };
-                                cur = rebuild_apps_skip(env, expr_add_const0(env.exprs, bname), args, 2);
+                                cur = rebuild_apps_skip_range(env, expr_add_const0(env.exprs, bname), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                                 reduced = 1;
                             }
                         }
@@ -809,7 +835,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     if env.decl_lps[lookup.idx].len() > 0 {
                         val = subst_level_params_const_args(env, lookup.val, env.decl_lps[lookup.idx], head);
                     }
-                    cur = rebuild_apps(env, val, args);
+                    cur = rebuild_apps_range(env, val, env.exprs.scratch_args, arg_base, arg_base + num_args);
                     reduced = 1;
                 }
               }
@@ -821,8 +847,8 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 let mut quot_expected_args: u64 = 0;
                 if qk == 2 { quot_expected_args = 6; quot_major_pos = 0; quot_fn_pos = 2; }
                 if qk == 3 { quot_expected_args = 5; quot_major_pos = 0; quot_fn_pos = 1; }
-                if quot_expected_args > 0 && args.len() >= quot_expected_args {
-                    let qv: u64 = whnf(env, args[quot_major_pos]);
+                if quot_expected_args > 0 && num_args >= quot_expected_args {
+                    let qv: u64 = whnf(env, env.exprs.scratch_args[arg_base + quot_major_pos]);
                     let mut qv_args: Vec<u64> = Vec::new();
                     let mut qv_head: u64 = qv;
                     while qv_head < env.exprs.tags.len() && env.exprs.tags[qv_head] == 3 {
@@ -833,7 +859,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         let qv_lk: DeclLookup = env_lookup_name(env, env.exprs.f1[qv_head]);
                         if qv_lk.found > 0 && qv_lk.kind == 4 && qv_lk.val == 1 && qv_args.len() >= 3 {
                             let a_val: u64 = qv_args[0];
-                            let fn_val: u64 = args[quot_fn_pos];
+                            let fn_val: u64 = env.exprs.scratch_args[arg_base + quot_fn_pos];
                             cur = expr_add_app(env.exprs, fn_val, a_val);
                             reduced = 1;
                         }
@@ -851,13 +877,17 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 let nmi: u64 = env.rec_num_minors[rec_idx];
                 let ni: u64 = env.rec_num_indices[rec_idx];
                 let major_idx: u64 = np + nm + nmi + ni;
-                if args.len() > major_idx {
-                    let major_rev_pos: u64 = args.len() - 1 - major_idx;
-                    let major: u64 = whnf(env, args[major_rev_pos]);
-                    let mut major_args: Vec<u64> = Vec::new();
+                if num_args > major_idx {
+                    let major_rev_pos: u64 = num_args - 1 - major_idx;
+                    let major: u64 = whnf(env, env.exprs.scratch_args[arg_base + major_rev_pos]);
+                    // Layer major_args on top of the outer whnf_core slice in
+                    // scratch_args. Recursive whnf/infer/is_def_eq calls below
+                    // push beyond us and pop back, so our slice is stable for
+                    // the duration of this branch.
+                    let major_args_base: u64 = env.exprs.scratch_args.len();
                     let mut major_head: u64 = major;
                     while major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 3 {
-                        major_args.push(env.exprs.f2[major_head]);
+                        env.exprs.scratch_args.push(env.exprs.f2[major_head]);
                         major_head = env.exprs.f1[major_head];
                     }
                     if major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 7 && expr_lit_kind(env.exprs, major_head) == 0 {
@@ -867,9 +897,10 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         } else if lit_val != 4294967294 {
                             let pred_lit: u64 = expr_add_nat_lit(env.exprs, lit_val - 1);
                             major_head = expr_add_const0(env.exprs, env.name_nat_succ);
-                            major_args.push(pred_lit);
+                            env.exprs.scratch_args.push(pred_lit);
                         }
                     }
+                    let major_args_len: u64 = env.exprs.scratch_args.len() - major_args_base;
                     let mut iota_done: u64 = 0;
                     if major_head < env.exprs.tags.len() && env.exprs.tags[major_head] == 2 {
                         let ctor_name_idx: u64 = env.exprs.f1[major_head];
@@ -890,28 +921,28 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 }
                                 rri = rri + 1;
                             }
-                            if found_rule > 0 && major_args.len() >= rule_nfields {
+                            if found_rule > 0 && major_args_len >= rule_nfields {
                                 let rhs: u64 = subst_level_params(env, rule_rhs, env.decl_lps[lookup.idx], levels);
                                 let ppm: u64 = np + nm + nmi;
                                 let mut result: u64 = rhs;
                                 let mut ai: u64 = 0;
                                 while ai < ppm {
-                                    result = expr_add_app(env.exprs, result, args[args.len() - 1 - ai]);
+                                    result = expr_add_app(env.exprs, result, env.exprs.scratch_args[arg_base + num_args - 1 - ai]);
                                     ai = ai + 1;
                                 }
                                 if rule_nfields > 0 {
                                     let mut fi: u64 = 0;
                                     while fi < rule_nfields {
-                                        result = expr_add_app(env.exprs, result, major_args[rule_nfields - 1 - fi]);
+                                        result = expr_add_app(env.exprs, result, env.exprs.scratch_args[major_args_base + rule_nfields - 1 - fi]);
                                         fi = fi + 1;
                                     }
                                 }
-                                if args.len() > major_idx + 1 {
-                                    let num_extras: u64 = args.len() - major_idx - 1;
+                                if num_args > major_idx + 1 {
+                                    let num_extras: u64 = num_args - major_idx - 1;
                                     let mut ei: u64 = num_extras;
                                     while ei > 0 {
                                         ei = ei - 1;
-                                        result = expr_add_app(env.exprs, result, args[ei]);
+                                        result = expr_add_app(env.exprs, result, env.exprs.scratch_args[arg_base + ei]);
                                     }
                                 }
                                 cur = result;
@@ -943,11 +974,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 let mut ctor_app_k: u64 = expr_add_const(env.exprs, ctor_name_k, ctor_levels);
                                 let mut kpi: u64 = 0;
                                 while kpi < np {
-                                    ctor_app_k = expr_add_app(env.exprs, ctor_app_k, args[args.len() - 1 - kpi]);
+                                    ctor_app_k = expr_add_app(env.exprs, ctor_app_k, env.exprs.scratch_args[arg_base + num_args - 1 - kpi]);
                                     kpi = kpi + 1;
                                 }
                                 let ctor_ty_k: u64 = infer(env, ctor_app_k);
-                                let major_ty_k: u64 = infer(env, args[major_rev_pos]);
+                                let major_ty_k: u64 = infer(env, env.exprs.scratch_args[arg_base + major_rev_pos]);
                                 if is_err(ctor_ty_k) == 0 && is_err(major_ty_k) == 0 {
                                     if is_def_eq(env, ctor_ty_k, major_ty_k) > 0 {
                                         k_ok = 1;
@@ -960,15 +991,15 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 let mut result_k: u64 = rhs_k;
                                 let mut ai_k: u64 = 0;
                                 while ai_k < ppm_k {
-                                    result_k = expr_add_app(env.exprs, result_k, args[args.len() - 1 - ai_k]);
+                                    result_k = expr_add_app(env.exprs, result_k, env.exprs.scratch_args[arg_base + num_args - 1 - ai_k]);
                                     ai_k = ai_k + 1;
                                 }
-                                if args.len() > major_idx + 1 {
-                                    let num_extras_k: u64 = args.len() - major_idx - 1;
+                                if num_args > major_idx + 1 {
+                                    let num_extras_k: u64 = num_args - major_idx - 1;
                                     let mut ei_k: u64 = num_extras_k;
                                     while ei_k > 0 {
                                         ei_k = ei_k - 1;
-                                        result_k = expr_add_app(env.exprs, result_k, args[ei_k]);
+                                        result_k = expr_add_app(env.exprs, result_k, env.exprs.scratch_args[arg_base + ei_k]);
                                     }
                                 }
                                 cur = result_k;
@@ -1011,7 +1042,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                   let mut ctor_app_e: u64 = expr_add_const(env.exprs, ctor_name_e, ctor_levels_e);
                                   let mut pei_e: u64 = 0;
                                   while pei_e < np {
-                                      ctor_app_e = expr_add_app(env.exprs, ctor_app_e, args[args.len() - 1 - pei_e]);
+                                      ctor_app_e = expr_add_app(env.exprs, ctor_app_e, env.exprs.scratch_args[arg_base + num_args - 1 - pei_e]);
                                       pei_e = pei_e + 1;
                                   }
                                   let mut fi_e: u64 = 0;
@@ -1021,11 +1052,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                       fi_e = fi_e + 1;
                                   }
                                   let mut new_rec_e: u64 = expr_add_const(env.exprs, name_idx, levels);
-                                  let major_rev_pos_e: u64 = args.len() - 1 - major_idx;
-                                  let mut qi_e: u64 = args.len();
+                                  let major_rev_pos_e: u64 = num_args - 1 - major_idx;
+                                  let mut qi_e: u64 = num_args;
                                   while qi_e > 0 {
                                       qi_e = qi_e - 1;
-                                      let arg_use_e: u64 = if qi_e == major_rev_pos_e { ctor_app_e } else { args[qi_e] };
+                                      let arg_use_e: u64 = if qi_e == major_rev_pos_e { ctor_app_e } else { env.exprs.scratch_args[arg_base + qi_e] };
                                       new_rec_e = expr_add_app(env.exprs, new_rec_e, arg_use_e);
                                   }
                                   cur = new_rec_e;
@@ -1051,8 +1082,8 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                   let cs_p: u64 = env.ind_ctor_start[p_ind_idx];
                                   let nf_p: u64 = env.ind_ctor_num_fields[cs_p];
                                   if nf_p > 0 {
-                                    let minor_rev_p: u64 = args.len() - 1 - np - nm;
-                                    let minor_w_p: u64 = whnf_core(env, args[minor_rev_p], 2);
+                                    let minor_rev_p: u64 = num_args - 1 - np - nm;
+                                    let minor_w_p: u64 = whnf_core(env, env.exprs.scratch_args[arg_base + minor_rev_p], 2);
                                     let mut body_p: u64 = minor_w_p;
                                     let mut lc_p: u64 = 0;
                                     let mut lok_p: u64 = 1;
@@ -1077,7 +1108,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                                 canon_name = env.proj_name_canon[ind_name_p];
                                             }
                                             let proj_p: u64 = expr_add_proj(env.exprs, canon_name, fi_p, major);
-                                            cur = rebuild_apps_skip(env, proj_p, args, major_idx + 1);
+                                            cur = rebuild_apps_skip_range(env, proj_p, env.exprs.scratch_args, arg_base, arg_base + num_args, major_idx + 1);
                                             reduced = 1;
                                           }
                                         }
@@ -1102,7 +1133,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 if env.exprs.tags[w_struct] == 7 && expr_lit_kind(env.exprs, w_struct) == 1 {
                     if struct_name == env.name_string {
                         if expr_lit_is_empty_str(env.exprs, w_struct) > 0 {
-                            cur = rebuild_apps(env, expr_add_const0(env.exprs, env.name_bytearray_empty), args);
+                            cur = rebuild_apps_range(env, expr_add_const0(env.exprs, env.name_bytearray_empty), env.exprs.scratch_args, arg_base, arg_base + num_args);
                             reduced = 1;
                         }
                     }
@@ -1127,7 +1158,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             let nf: u64 = env.ind_ctor_num_fields[cs];
                             if proj_idx < nf && s_args.len() >= np + nf {
                                 let field_pos: u64 = s_args.len() - 1 - np - proj_idx;
-                                cur = rebuild_apps(env, s_args[field_pos], args);
+                                cur = rebuild_apps_range(env, s_args[field_pos], env.exprs.scratch_args, arg_base, arg_base + num_args);
                                 reduced = 1;
                             }
                         }
@@ -1137,9 +1168,14 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         } else if ht == 7 {
         } else if ht == 9 {
             let inner: u64 = env.exprs.f1[head];
-            cur = rebuild_apps(env, inner, args);
+            cur = rebuild_apps_range(env, inner, env.exprs.scratch_args, arg_base, arg_base + num_args);
             reduced = 1;
         }
+
+        // Pop this iteration's args before exit or continue. Recursive
+        // whnf_core invocations layered their own slices on top during the
+        // branch and have already popped back to arg_base + num_args by here.
+        env.exprs.scratch_args.truncate(arg_base);
 
         if reduced == 0 {
             if do_delta > 0 && orig_expr < env.exprs.cache.len() {
