@@ -575,6 +575,9 @@ fn def_eq_cache_store(env: Environment, e1: u64, e2: u64) {
         b = tmp;
     }
     let h: u64 = def_eq_cache_hash(env, a, b);
+    if env.def_eq_cache_v[h] == 0 {
+        env.def_eq_cache_dirty.push(h);
+    }
     env.def_eq_cache_l[h] = a;
     env.def_eq_cache_r[h] = b;
     env.def_eq_cache_v[h] = 1;
@@ -619,31 +622,42 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r:
         let w1: u64 = whnf_core(env, cur1, 0);
         let w2: u64 = whnf_core(env, cur2, 0);
         if w1 == w2 { return 1; }
-        // Congruence shortcut: same Const head → push args onto stack
+        // Congruence shortcut: same Const head → compare args.
+        // Count arity in tandem walks to avoid Vec allocations (this fires
+        // thousands of times per heavy decl; the Vecs were escaping to the
+        // root region under Vow's region inference and slowly leaking memory).
         let mut ch1: u64 = w1;
         let mut ch2: u64 = w2;
-        let mut a1: Vec<u64> = Vec::new();
-        let mut a2: Vec<u64> = Vec::new();
+        let mut n1: u64 = 0;
+        let mut n2: u64 = 0;
         while ch1 < env.exprs.tags.len() && env.exprs.tags[ch1] == 3 {
-            a1.push(env.exprs.f2[ch1]); ch1 = env.exprs.f1[ch1];
+            n1 = n1 + 1;
+            ch1 = env.exprs.f1[ch1];
         }
         while ch2 < env.exprs.tags.len() && env.exprs.tags[ch2] == 3 {
-            a2.push(env.exprs.f2[ch2]); ch2 = env.exprs.f1[ch2];
+            n2 = n2 + 1;
+            ch2 = env.exprs.f1[ch2];
         }
         if ch1 < env.exprs.tags.len() && ch2 < env.exprs.tags.len() {
             if env.exprs.tags[ch1] == 2 && env.exprs.tags[ch2] == 2 {
                 if env.exprs.f1[ch1] == env.exprs.f1[ch2] {
-                    if a1.len() == a2.len() {
+                    if n1 == n2 {
                         if is_levels_eq_at(env, ch1, ch2) > 0 {
-                            // Speculative congruence: try comparing args directly
-                            // If any fails, fall through to lazy delta (don't commit)
+                            // Speculative congruence: walk both spines in
+                            // tandem, comparing matching args. App nodes are
+                            // built as f1=fn, f2=arg so outermost arg comes
+                            // first in the walk; matching positions match.
+                            let mut a1: u64 = w1;
+                            let mut a2: u64 = w2;
                             let mut all_ok: u64 = 1;
                             let mut ai: u64 = 0;
-                            while ai < a1.len() {
-                                if is_def_eq(env, a1[ai], a2[ai]) == 0 {
+                            while ai < n1 {
+                                if is_def_eq(env, env.exprs.f2[a1], env.exprs.f2[a2]) == 0 {
                                     all_ok = 0;
-                                    ai = a1.len();
+                                    ai = n1;
                                 }
+                                a1 = env.exprs.f1[a1];
+                                a2 = env.exprs.f1[a2];
                                 ai = ai + 1;
                             }
                             if all_ok > 0 {
@@ -743,27 +757,35 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             // compare head once and args linearly. Single-level peel here was
             // O(2^N) for an N-arg spine because is_def_eq_full(fn, fn') re-enters
             // this branch on the inner app at every level (issue #3).
+            //
+            // Walk in tandem rather than building Vec<u64> spines: the temp
+            // Vecs escaped to the root region under Vow's region inference,
+            // leaking memory across decls on long runs (init.ndjson).
             let mut head1: u64 = w1;
             let mut head2: u64 = w2;
-            let mut as1: Vec<u64> = Vec::new();
-            let mut as2: Vec<u64> = Vec::new();
+            let mut n1: u64 = 0;
+            let mut n2: u64 = 0;
             while head1 < env.exprs.tags.len() && env.exprs.tags[head1] == 3 {
-                as1.push(env.exprs.f2[head1]);
+                n1 = n1 + 1;
                 head1 = env.exprs.f1[head1];
             }
             while head2 < env.exprs.tags.len() && env.exprs.tags[head2] == 3 {
-                as2.push(env.exprs.f2[head2]);
+                n2 = n2 + 1;
                 head2 = env.exprs.f1[head2];
             }
-            if as1.len() == as2.len() {
+            if n1 == n2 {
                 if is_def_eq_full(env, head1, head2) > 0 {
+                    let mut a1: u64 = w1;
+                    let mut a2: u64 = w2;
                     let mut all_ok: u64 = 1;
                     let mut ai: u64 = 0;
-                    while ai < as1.len() {
-                        if is_def_eq_full(env, as1[ai], as2[ai]) == 0 {
+                    while ai < n1 {
+                        if is_def_eq_full(env, env.exprs.f2[a1], env.exprs.f2[a2]) == 0 {
                             all_ok = 0;
-                            ai = as1.len();
+                            ai = n1;
                         }
+                        a1 = env.exprs.f1[a1];
+                        a2 = env.exprs.f1[a2];
                         ai = ai + 1;
                     }
                     if all_ok > 0 { return 1; }
