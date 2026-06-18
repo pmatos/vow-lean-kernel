@@ -13,7 +13,7 @@ pub fn level_to_string(env: Environment, level: u64) -> String {
     if t == 0 { return String::from("0"); }
     if t == 4 { return name_to_string(env.names, env.levels.f1[level]); }
     if t == 1 {
-        let mut s: String = String::from("S(");
+        let s: String = String::from("S(");
         let inner: String = level_to_string(env, env.levels.f1[level]);
         let mut i: u64 = 0;
         while i < inner.len() { s.push_byte(inner.byte_at(i)); i = i + 1; }
@@ -21,7 +21,7 @@ pub fn level_to_string(env: Environment, level: u64) -> String {
         return s;
     }
     if t == 2 {
-        let mut s: String = String::from("max(");
+        let s: String = String::from("max(");
         let l: String = level_to_string(env, env.levels.f1[level]);
         let mut i: u64 = 0;
         while i < l.len() { s.push_byte(l.byte_at(i)); i = i + 1; }
@@ -33,7 +33,7 @@ pub fn level_to_string(env: Environment, level: u64) -> String {
         return s;
     }
     if t == 3 {
-        let mut s: String = String::from("imax(");
+        let s: String = String::from("imax(");
         let l: String = level_to_string(env, env.levels.f1[level]);
         let mut i: u64 = 0;
         while i < l.len() { s.push_byte(l.byte_at(i)); i = i + 1; }
@@ -287,7 +287,7 @@ pub fn is_level_leq(env: Environment, a: u64, b: u64) -> u64 {
 }
 
 fn unfold_def_head(env: Environment, e: u64) -> u64 {
-    let mut args: Vec<u64> = Vec::new();
+    let args: Vec<u64> = Vec::new();
     let mut head: u64 = e;
     while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
         args.push(env.exprs.f2[head]);

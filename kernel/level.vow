@@ -16,13 +16,13 @@ pub struct LevelArena {
 }
 
 pub fn level_arena_new() -> LevelArena {
-    let mut entries: Vec<LevelData> = Vec::new();
+    let entries: Vec<LevelData> = Vec::new();
     entries.push(LevelData::Zero);
-    let mut tags: Vec<u64> = Vec::new();
+    let tags: Vec<u64> = Vec::new();
     tags.push(0);
-    let mut f1s: Vec<u64> = Vec::new();
+    let f1s: Vec<u64> = Vec::new();
     f1s.push(0);
-    let mut f2s: Vec<u64> = Vec::new();
+    let f2s: Vec<u64> = Vec::new();
     f2s.push(0);
     return LevelArena { entries: entries, tags: tags, f1: f1s, f2: f2s };
 }

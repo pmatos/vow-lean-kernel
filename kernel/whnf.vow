@@ -208,7 +208,7 @@ pub fn nat_str_ble(a: String, b: String) -> u64 {
 }
 
 pub fn nat_str_add(a: String, b: String) -> String {
-    let mut rev: String = String::new();
+    let rev: String = String::new();
     let mut ai: u64 = a.len();
     let mut bi: u64 = b.len();
     let mut carry: u64 = 0;
@@ -225,7 +225,7 @@ pub fn nat_str_add(a: String, b: String) -> String {
         rev.push_byte(48 + (sum % 10));
         carry = sum / 10;
     }
-    let mut result: String = String::new();
+    let result: String = String::new();
     let mut ri: u64 = rev.len();
     while ri > 0 {
         ri = ri - 1;
@@ -239,7 +239,7 @@ pub fn nat_str_mul(a: String, b: String) -> String {
     let blen: u64 = b.len();
     if alen == 0 || blen == 0 { return String::from("0"); }
     let rlen: u64 = alen + blen;
-    let mut digits: Vec<u64> = Vec::new();
+    let digits: Vec<u64> = Vec::new();
     let mut di: u64 = 0;
     while di < rlen { digits.push(0); di = di + 1; }
     let mut ai: u64 = 0;
@@ -258,7 +258,7 @@ pub fn nat_str_mul(a: String, b: String) -> String {
         if carry > 0 { digits[ai + blen] = digits[ai + blen] + carry; }
         ai = ai + 1;
     }
-    let mut result: String = String::new();
+    let result: String = String::new();
     let mut started: u64 = 0;
     let mut ri: u64 = rlen;
     while ri > 0 {
@@ -348,7 +348,7 @@ fn int_neg_nat_expr(env: Environment, n: u64) -> u64 {
 
 fn int_nonneg_nat_value(env: Environment, expr: u64) -> u64 {
     if expr < env.exprs.tags.len() {
-        let mut raw_args: Vec<u64> = Vec::new();
+        let raw_args: Vec<u64> = Vec::new();
         let mut raw_head: u64 = expr;
         while raw_head < env.exprs.tags.len() && env.exprs.tags[raw_head] == 3 {
             raw_args.push(env.exprs.f2[raw_head]);
@@ -386,7 +386,7 @@ fn int_nonneg_nat_value(env: Environment, expr: u64) -> u64 {
     }
     let w: u64 = whnf(env, expr);
     if w >= env.exprs.tags.len() { return 4294967294; }
-    let mut args: Vec<u64> = Vec::new();
+    let args: Vec<u64> = Vec::new();
     let mut head: u64 = w;
     while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
         args.push(env.exprs.f2[head]);
@@ -432,7 +432,7 @@ fn int_nonneg_nat_value(env: Environment, expr: u64) -> u64 {
 fn bitvec64_value(env: Environment, expr: u64) -> u64 {
     let w: u64 = whnf(env, expr);
     if w >= env.exprs.tags.len() { return 4294967294; }
-    let mut args: Vec<u64> = Vec::new();
+    let args: Vec<u64> = Vec::new();
     let mut head: u64 = w;
     while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
         args.push(env.exprs.f2[head]);
@@ -849,7 +849,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 if qk == 3 { quot_expected_args = 5; quot_major_pos = 0; quot_fn_pos = 1; }
                 if quot_expected_args > 0 && num_args >= quot_expected_args {
                     let qv: u64 = whnf(env, env.exprs.scratch_args[arg_base + quot_major_pos]);
-                    let mut qv_args: Vec<u64> = Vec::new();
+                    let qv_args: Vec<u64> = Vec::new();
                     let mut qv_head: u64 = qv;
                     while qv_head < env.exprs.tags.len() && env.exprs.tags[qv_head] == 3 {
                         qv_args.push(env.exprs.f2[qv_head]);
@@ -963,7 +963,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             if ind_lk_k.found > 0 && ind_lk_k.kind == 5 {
                                 let ind_nlp: u64 = env.decl_lps[ind_lk_k.idx].len();
                                 let rec_nlp: u64 = env.decl_lps[lookup.idx].len();
-                                let mut ctor_levels: Vec<u64> = Vec::new();
+                                let ctor_levels: Vec<u64> = Vec::new();
                                 let mut cli: u64 = rec_nlp - ind_nlp;
                                 while cli < rec_nlp {
                                     if cli < levels.len() {
@@ -1027,7 +1027,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                   let ctor_name_e: u64 = env.rec_rule_ctors[rs_e];
                                   let ind_nlp_e: u64 = env.decl_lps[ind_lk_e.idx].len();
                                   let rec_nlp_e: u64 = env.decl_lps[lookup.idx].len();
-                                  let mut ctor_levels_e: Vec<u64> = Vec::new();
+                                  let ctor_levels_e: Vec<u64> = Vec::new();
                                   let mut cli_e: u64 = rec_nlp_e - ind_nlp_e;
                                   while cli_e < rec_nlp_e {
                                       if cli_e < levels.len() {

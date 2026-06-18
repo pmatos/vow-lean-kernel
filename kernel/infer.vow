@@ -170,7 +170,7 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
 
     // Get struct type's level args and parameter args
     let w_sty: u64 = whnf(env, struct_ty);
-    let mut sty_args: Vec<u64> = Vec::new();
+    let sty_args: Vec<u64> = Vec::new();
     let mut sty_head: u64 = w_sty;
     while sty_head < env.exprs.tags.len() && env.exprs.tags[sty_head] == 3 {
         sty_args.push(env.exprs.f2[sty_head]);

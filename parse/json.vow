@@ -133,7 +133,7 @@ pub fn json_parse_bool(s: String, pos: u64) -> bool {
 }
 
 pub fn json_parse_uint_array(s: String, pos: u64) -> ParseUintArrayResult {
-    let mut vals: Vec<u64> = Vec::new();
+    let vals: Vec<u64> = Vec::new();
     let mut p: u64 = skip_ws(s, pos);
     if p >= s.len() || s.byte_at(p) != 91 {
         return ParseUintArrayResult { vals: vals, end_pos: p };
@@ -161,7 +161,7 @@ pub fn json_parse_uint_array(s: String, pos: u64) -> ParseUintArrayResult {
 }
 
 pub fn json_parse_object_array(s: String, pos: u64) -> Vec<u64> {
-    let mut positions: Vec<u64> = Vec::new();
+    let positions: Vec<u64> = Vec::new();
     let mut p: u64 = skip_ws(s, pos);
     if p >= s.len() || s.byte_at(p) != 91 {
         return positions;

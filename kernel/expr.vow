@@ -30,7 +30,7 @@ fn chain_nil() -> u64 {
 }
 
 pub fn expr_arena_new() -> ExprArena {
-    let mut heads: Vec<u64> = Vec::new();
+    let heads: Vec<u64> = Vec::new();
     let mut bi: u64 = 0;
     while bi < 65536 {
         heads.push(chain_nil());
@@ -305,12 +305,12 @@ pub fn expr_add_let(arena: ExprArena, name: u64, ty: u64, val: u64, body: u64, n
 }
 
 pub fn expr_add_nat_lit(arena: ExprArena, n: u64) -> u64 {
-    let mut s: String = String::new();
+    let s: String = String::new();
     if n == 0 {
         s.push_byte(48);
     } else {
         let mut tmp: u64 = n;
-        let mut digits: Vec<u64> = Vec::new();
+        let digits: Vec<u64> = Vec::new();
         while tmp > 0 {
             digits.push(tmp % 10);
             tmp = tmp / 10;
@@ -442,7 +442,7 @@ pub fn expr_lit_is_empty_str(arena: ExprArena, idx: u64) -> u64 {
 pub fn expr_get_levels(arena: ExprArena, idx: u64) -> Vec<u64> {
     let n: u64 = expr_level_count(arena, idx);
     let s: u64 = arena.f2[idx];
-    let mut out: Vec<u64> = Vec::new();
+    let out: Vec<u64> = Vec::new();
     let mut i: u64 = 0;
     while i < n {
         out.push(arena.level_pool[s + i]);

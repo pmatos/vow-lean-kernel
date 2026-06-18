@@ -147,7 +147,7 @@ pub fn parse_quoted_string(s: String, pos: u64) -> ParseStrResult {
         return ParseStrResult { val: String::from(""), end_pos: pos };
     }
     i = i + 1;
-    let mut result: String = String::from("");
+    let result: String = String::from("");
     while i < s.len() {
         let b: u64 = s.byte_at(i);
         if b == 34 {
@@ -203,13 +203,13 @@ pub fn u64_to_string(n: u64) -> String {
     if n == 0 {
         return String::from("0");
     }
-    let mut digits: Vec<u64> = Vec::new();
+    let digits: Vec<u64> = Vec::new();
     let mut val: u64 = n;
     while val > 0 {
         digits.push(val % 10);
         val = val / 10;
     }
-    let mut result: String = String::from("");
+    let result: String = String::from("");
     let mut i: u64 = digits.len();
     while i > 0 {
         i = i - 1;
@@ -219,7 +219,7 @@ pub fn u64_to_string(n: u64) -> String {
 }
 
 pub fn split_lines(s: String) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
+    let lines: Vec<String> = Vec::new();
     let mut start: u64 = 0;
     let mut i: u64 = 0;
     while i < s.len() {
