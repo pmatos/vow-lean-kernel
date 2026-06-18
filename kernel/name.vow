@@ -26,7 +26,7 @@ pub struct NameArena {
 }
 
 pub fn name_arena_new() -> NameArena {
-    let mut entries: Vec<NameData> = Vec::new();
+    let entries: Vec<NameData> = Vec::new();
     entries.push(make_name_anonymous());
     return NameArena { entries: entries };
 }
@@ -72,7 +72,7 @@ pub fn name_arena_get(arena: NameArena, idx: u64) -> NameData vow {
 }
 
 pub fn name_to_string(arena: NameArena, idx: u64) -> String {
-    let mut components: Vec<String> = Vec::new();
+    let components: Vec<String> = Vec::new();
     let mut cur: u64 = idx;
     let stop: u64 = arena.entries.len();
     while cur < stop {
@@ -90,7 +90,7 @@ pub fn name_to_string(arena: NameArena, idx: u64) -> String {
     if components.len() == 0 {
         return String::from("[anonymous]");
     }
-    let mut result: String = String::from("");
+    let result: String = String::from("");
     let mut i: u64 = components.len();
     while i > 0 {
         i = i - 1;

@@ -185,7 +185,7 @@ pub fn subst_level_const_args(env: Environment, level: u64, params: Vec<u64>, ar
 }
 
 fn subst_levels(env: Environment, lvls: Vec<u64>, params: Vec<u64>, args: Vec<u64>) -> Vec<u64> {
-    let mut result: Vec<u64> = Vec::new();
+    let result: Vec<u64> = Vec::new();
     let mut i: u64 = 0;
     let mut changed: u64 = 0;
     while i < lvls.len() {
@@ -236,7 +236,7 @@ pub fn subst_level_params_const_args(env: Environment, expr: u64, params: Vec<u6
         if changed == 0 {
             return expr;
         }
-        let mut new_lvls: Vec<u64> = Vec::new();
+        let new_lvls: Vec<u64> = Vec::new();
         let mut j: u64 = 0;
         while j < n {
             new_lvls.push(subst_level_const_args(env, env.exprs.level_pool[start + j], params, args_expr));
@@ -347,7 +347,7 @@ pub fn subst_level_params(env: Environment, expr: u64, params: Vec<u64>, args: V
         if changed == 0 {
             return expr;
         }
-        let mut new_lvls: Vec<u64> = Vec::new();
+        let new_lvls: Vec<u64> = Vec::new();
         let mut j: u64 = 0;
         while j < n {
             new_lvls.push(subst_level(env, env.exprs.level_pool[start + j], params, args));

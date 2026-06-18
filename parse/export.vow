@@ -15,7 +15,7 @@ pub struct FindResult {
 pub fn find_key(s: String, obj_pos: u64, key: String) -> FindResult vow {
     requires: obj_pos <= s.len()
 } {
-    let mut result: FindResult = FindResult { found: 0, pos: 0 };
+    let result: FindResult = FindResult { found: 0, pos: 0 };
     match json_find_key(s, obj_pos, key) {
         Option::Some(p) => { result.found = 1; result.pos = p; },
         Option::None => {},
@@ -430,7 +430,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     let ind_pos: u64 = unwrap_pos(json_find_key(line, 0, "inductive"));
 
     let type_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, "types")));
-    let mut types: Vec<InductiveType> = Vec::new();
+    let types: Vec<InductiveType> = Vec::new();
     let mut ti: u64 = 0;
     while ti < type_positions.len() {
         types.push(parse_one_inductive_type(line, type_positions[ti]));
@@ -438,7 +438,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     }
 
     let ctor_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, "ctors")));
-    let mut ctors: Vec<ConstructorDecl> = Vec::new();
+    let ctors: Vec<ConstructorDecl> = Vec::new();
     let mut ci: u64 = 0;
     while ci < ctor_positions.len() {
         ctors.push(parse_one_constructor(line, ctor_positions[ci]));
@@ -446,7 +446,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     }
 
     let rec_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, "recs")));
-    let mut recs: Vec<RecursorDecl> = Vec::new();
+    let recs: Vec<RecursorDecl> = Vec::new();
     let mut ri: u64 = 0;
     while ri < rec_positions.len() {
         recs.push(parse_one_recursor(line, rec_positions[ri]));

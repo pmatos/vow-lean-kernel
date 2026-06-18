@@ -67,7 +67,7 @@ fn check_field_universe(env: Environment, field_ty: u64, ind_sort_level: u64) ->
 }
 
 fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, param_locals: Vec<u64>) -> u64 {
-    let mut args: Vec<u64> = Vec::new();
+    let args: Vec<u64> = Vec::new();
     let mut head: u64 = result;
     while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
         args.push(env.exprs.f2[head]);
@@ -114,7 +114,7 @@ fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_param
 fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, ctor_ty: u64, ctor_num_params: u64, ctor_num_fields: u64, ind_sort_level: u64) -> u64 {
     let mut cty: u64 = ctor_ty;
     let mut ity: u64 = ind_ty;
-    let mut param_locals: Vec<u64> = Vec::new();
+    let param_locals: Vec<u64> = Vec::new();
 
     let mut pi: u64 = 0;
     while pi < ctor_num_params {
@@ -170,7 +170,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     // Step 1: Open recursor type binders (params + motives + minors)
     let total_prefix: u64 = num_params + num_motives + num_minors;
     let mut rec_cur: u64 = rec_ty;
-    let mut prefix_locals: Vec<u64> = Vec::new();
+    let prefix_locals: Vec<u64> = Vec::new();
     let mut bi: u64 = 0;
     while bi < total_prefix {
         rec_cur = whnf(env, rec_cur);
@@ -211,7 +211,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     }
 
     // Step 4: Open field binders, collect field locals
-    let mut field_locals: Vec<u64> = Vec::new();
+    let field_locals: Vec<u64> = Vec::new();
     let mut fi: u64 = 0;
     while fi < rule_nfields {
         ctor_cur = whnf(env, ctor_cur);
@@ -229,7 +229,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     // Extract indices from constructor result type (ctor_cur = T params i1'...in')
     let ctor_result: u64 = whnf(env, ctor_cur);
     let mut ctor_head: u64 = ctor_result;
-    let mut ctor_app_args: Vec<u64> = Vec::new();
+    let ctor_app_args: Vec<u64> = Vec::new();
     while ctor_head < env.exprs.tags.len() && env.exprs.tags[ctor_head] == 3 {
         ctor_app_args.push(env.exprs.f2[ctor_head]);
         ctor_head = env.exprs.f1[ctor_head];
@@ -250,7 +250,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     // Build major = Const(ctor, ind_levels) applied to params and fields
     // ind_type_lps stores NAME indices; convert to level arena indices
     let ind_lp_names: Vec<u64> = env.ind_type_lps[type_start];
-    let mut ind_levels: Vec<u64> = Vec::new();
+    let ind_levels: Vec<u64> = Vec::new();
     let mut li: u64 = 0;
     while li < ind_lp_names.len() {
         ind_levels.push(level_add_param(env.levels, ind_lp_names[li]));
