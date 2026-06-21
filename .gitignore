@@ -6,6 +6,8 @@ lean_checker.o
 # Test data (large NDJSON files downloaded from arena)
 tests/good/*.ndjson
 tests/bad/*.ndjson
+# SInt regression fixtures are generated via lean4export (see tests/sint/README.md)
+tests/sint/*.ndjson
 
 # Reproducer build artifacts
 repro/*.o
