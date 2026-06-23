@@ -825,7 +825,15 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             structural_done = 1;
         }
         if t1 == 10 {
-            if env.exprs.f1[w1] == env.exprs.f1[w2] { return 1; }
+            // Local-vs-Local: with De Bruijn-level id reuse (issue #31) an equal id
+            // (f1) no longer implies the same typed variable, so also require the
+            // local types (f2) to be def-eq. Identical (id,ty) locals hash-cons to
+            // one node and are caught earlier by the w1==w2 short-circuit, so this
+            // only gates the same-id/different-type case — strictly conservative
+            // (it can only remove accepts, never add them).
+            if env.exprs.f1[w1] == env.exprs.f1[w2] {
+                if is_def_eq_full(env, env.exprs.f2[w1], env.exprs.f2[w2]) > 0 { return 1; }
+            }
             structural_done = 1;
         }
         if t1 == 8 {
