@@ -207,6 +207,33 @@ pub fn nat_str_ble(a: String, b: String) -> u64 {
     return 1;
 }
 
+// Increment a Nat literal's decimal string by 1, reading the source
+// byte-by-byte (borrow-only, like expr_lit_nat_ble) so arbitrary-precision
+// literals fold without routing through the u64 sentinel path.
+fn nat_lit_inc_str(arena: ExprArena, idx: u64) -> String {
+    let li: u64 = arena.f2[idx];
+    let len: u64 = arena.lit_val[li].len();
+    let rev: String = String::new();
+    let mut i: u64 = len;
+    let mut carry: u64 = 1;
+    while i > 0 {
+        i = i - 1;
+        let s: u64 = arena.lit_val[li].byte_at(i) - 48 + carry;
+        carry = s / 10;
+        rev.push_byte(48 + (s % 10));
+    }
+    if carry > 0 {
+        rev.push_byte(48 + carry);
+    }
+    let out: String = String::new();
+    let mut ri: u64 = rev.len();
+    while ri > 0 {
+        ri = ri - 1;
+        out.push_byte(rev.byte_at(ri));
+    }
+    return out;
+}
+
 pub fn nat_str_add(a: String, b: String) -> String {
     let rev: String = String::new();
     let mut ai: u64 = a.len();
@@ -733,9 +760,20 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 }
             }
             if num_args >= 1 && name_idx == env.name_nat_succ {
-                let sv: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
-                if sv != 4294967294 && sv < 4294967293 {
-                    cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, sv + 1), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
+                let aw: u64 = whnf(env, env.exprs.scratch_args[arg_base + num_args - 1]);
+                if aw < env.exprs.tags.len() && env.exprs.tags[aw] == 7 && expr_lit_kind(env.exprs, aw) == 0 {
+                    let uv: u64 = expr_lit_nat_u64(env.exprs, aw);
+                    if uv != 4294967294 && uv < 4294967293 {
+                        cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, uv + 1), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
+                    } else {
+                        cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_lit_inc_str(env.exprs, aw)), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
+                    }
+                    reduced = 1;
+                } else if aw < env.exprs.tags.len() && env.exprs.tags[aw] == 2 && env.exprs.f1[aw] == env.name_nat_zero {
+                    // Constructor-form base case: Nat.succ Nat.zero = 1. whnf is
+                    // bottom-up, so deeper Nat.succ/Nat.zero chains collapse to a
+                    // literal one layer at a time and hit the tag-7 branch above.
+                    cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, 1), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
                     reduced = 1;
                 }
             }
