@@ -215,17 +215,6 @@ fn find_or_push_nonlit0(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64
     return idx;
 }
 
-fn push_local_no_dedup(arena: ExprArena, id: u64, ty: u64) {
-    arena.tags.push(10);
-    arena.f1.push(id);
-    arena.f2.push(ty);
-    arena.f3.push(0);
-    arena.f4.push(0);
-    arena.bi.push(pack_bi_lbr(0, 0));
-    arena.cache.push(cache_empty_value());
-    arena.hash_next.push(chain_nil());
-}
-
 pub fn expr_arena_import_id(arena: ExprArena, id: u64, actual: u64) {
     while arena.tags.len() <= id {
         arena.tags.push(arena.tags[actual]);
@@ -367,9 +356,10 @@ pub fn expr_contains_const(arena: ExprArena, expr: u64, name_idx: u64) -> u64 {
 }
 
 pub fn expr_add_local(arena: ExprArena, id: u64, ty: u64) -> u64 {
-    let i: u64 = arena.tags.len();
-    push_local_no_dedup(arena, id, ty);
-    return i;
+    // Hash-cons locals on (id, ty) so identical (id, ty) reuse one arena
+    // index (issue #31). A no-op wherever ids come from the monotonic
+    // next_local_id (never repeats); only def_eq's De Bruijn-level ids merge.
+    return find_or_push_nonlit0(arena, 10, id, ty, 0, 0, 0, 0, 0);
 }
 
 pub fn expr_level_count(arena: ExprArena, idx: u64) -> u64 {

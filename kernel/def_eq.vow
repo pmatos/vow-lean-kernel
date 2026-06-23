@@ -583,6 +583,15 @@ fn def_eq_cache_store(env: Environment, e1: u64, e2: u64) {
     env.def_eq_cache_v[h] = 1;
 }
 
+// Base of the reserved id range for def_eq's De Bruijn-LEVEL locals (issue #31).
+// def_eq opens binders with id = defeq_local_base() + def_eq_binder_depth, kept
+// disjoint from the monotonic next_local_id used by infer/inductive/main. 2^56
+// gives ~10^10 headroom over any realistic next_local_id, so the two id spaces
+// never overlap and hash-consed locals from the two schemes never merge.
+fn defeq_local_base() -> u64 {
+    return 72057594037927936;
+}
+
 // Full-WHNF def_eq for non-App structural checks (Lambda bodies, extensions)
 fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
@@ -800,12 +809,14 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             let body1: u64 = env.exprs.f3[w1];
             let body2: u64 = env.exprs.f3[w2];
             if is_def_eq_full(env, ty1, ty2) > 0 {
-                let local_id: u64 = env.next_local_id;
-                env.next_local_id = env.next_local_id + 1;
+                let local_id: u64 = defeq_local_base() + env.def_eq_binder_depth;
                 let local_expr: u64 = expr_add_local(env.exprs, local_id, ty1);
                 let ob1: u64 = instantiate(env, body1, local_expr);
                 let ob2: u64 = instantiate(env, body2, local_expr);
-                if is_def_eq_full(env, ob1, ob2) > 0 { return 1; }
+                env.def_eq_binder_depth = env.def_eq_binder_depth + 1;
+                let bres: u64 = is_def_eq_full(env, ob1, ob2);
+                env.def_eq_binder_depth = env.def_eq_binder_depth - 1;
+                if bres > 0 { return 1; }
             }
             structural_done = 1;
         }
@@ -872,23 +883,27 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
             env.cnt_dfull_etaexpand = env.cnt_dfull_etaexpand + 1;
             let lam_ty: u64 = env.exprs.f2[w1];
             let lam_body: u64 = env.exprs.f3[w1];
-            let local_id: u64 = env.next_local_id;
-            env.next_local_id = env.next_local_id + 1;
+            let local_id: u64 = defeq_local_base() + env.def_eq_binder_depth;
             let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
             let ob1: u64 = instantiate(env, lam_body, local_expr);
             let ob2: u64 = expr_add_app(env.exprs, w2, local_expr);
-            return is_def_eq_full(env, ob1, ob2);
+            env.def_eq_binder_depth = env.def_eq_binder_depth + 1;
+            let eres: u64 = is_def_eq_full(env, ob1, ob2);
+            env.def_eq_binder_depth = env.def_eq_binder_depth - 1;
+            return eres;
         }
         if t2 == 4 {
             env.cnt_dfull_etaexpand = env.cnt_dfull_etaexpand + 1;
             let lam_ty: u64 = env.exprs.f2[w2];
             let lam_body: u64 = env.exprs.f3[w2];
-            let local_id: u64 = env.next_local_id;
-            env.next_local_id = env.next_local_id + 1;
+            let local_id: u64 = defeq_local_base() + env.def_eq_binder_depth;
             let local_expr: u64 = expr_add_local(env.exprs, local_id, lam_ty);
             let ob2: u64 = instantiate(env, lam_body, local_expr);
             let ob1: u64 = expr_add_app(env.exprs, w1, local_expr);
-            return is_def_eq_full(env, ob1, ob2);
+            env.def_eq_binder_depth = env.def_eq_binder_depth + 1;
+            let eres: u64 = is_def_eq_full(env, ob1, ob2);
+            env.def_eq_binder_depth = env.def_eq_binder_depth - 1;
+            return eres;
         }
     }
 
