@@ -769,6 +769,12 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_lit_inc_str(env.exprs, aw)), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
                     }
                     reduced = 1;
+                } else if aw < env.exprs.tags.len() && env.exprs.tags[aw] == 2 && env.exprs.f1[aw] == env.name_nat_zero {
+                    // Constructor-form base case: Nat.succ Nat.zero = 1. whnf is
+                    // bottom-up, so deeper Nat.succ/Nat.zero chains collapse to a
+                    // literal one layer at a time and hit the tag-7 branch above.
+                    cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, 1), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
+                    reduced = 1;
                 }
             }
             if reduced == 0 && num_args >= 2 {
