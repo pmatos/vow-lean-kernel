@@ -77,6 +77,15 @@ pub fn level_imax(env: Environment, l1: u64, l2: u64) -> u64 {
     if env.levels.tags[l1] == 0 {
         return l2;
     }
+    // imax 1 u = u (matches C++ kernel mk_imax: is_zero(l1) || is_one(l1) => l2).
+    // Without this, imax(1,v) fails to reduce to v, and e.g. `Nat → β` gets sort
+    // imax(1,v) instead of v, propagating a spurious max(_,1) into enclosing Pi
+    // sorts (e.g. `α → Nat → β` becomes imax(max(u,1),v) instead of imax(u,v)).
+    if env.levels.tags[l1] == 1 {
+        if env.levels.tags[env.levels.f1[l1]] == 0 {
+            return l2;
+        }
+    }
     if l1 == l2 {
         return l1;
     }
