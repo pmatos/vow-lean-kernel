@@ -311,6 +311,13 @@ fn main() -> i32 [io, read] {
             dci = dci + 1;
         }
         env.def_eq_cache_dirty.truncate(0);
+        let mut lci: u64 = 0;
+        while lci < env.lvl_cmp_cache_dirty.len() {
+            env.lvl_cmp_cache_v[env.lvl_cmp_cache_dirty[lci]] = 0;
+            lci = lci + 1;
+        }
+        env.lvl_cmp_cache_dirty.truncate(0);
+        env.lvl_cmp_fuel = 0;
         env.def_eq_depth = 0;
         env.def_eq_binder_depth = 0;
         env.whnf_depth = 0;
