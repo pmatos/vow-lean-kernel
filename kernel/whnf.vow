@@ -7,10 +7,16 @@ use kernel.env
 use kernel.subst
 use kernel.infer
 use kernel.def_eq
+use bignum
 
 struct NatChecked {
     ok: u64,
     val: u64,
+}
+
+struct NatBig {
+    ok: u64,
+    val: BigNum,
 }
 
 fn nat_u64_max() -> u64 {
@@ -355,6 +361,99 @@ pub fn nat_value(env: Environment, e: u64) -> u64 {
     return 4294967294;
 }
 
+// Extract a Nat value as an arbitrary-precision BigNum (no u64 ceiling).
+// Handles literals, Nat.zero, and Nat.succ chains. ok=0 when not a Nat value.
+fn nat_bignum_value(env: Environment, e: u64) -> NatBig {
+    let w: u64 = whnf(env, e);
+    if w >= env.exprs.tags.len() { return NatBig { ok: 0, val: bignum_zero() }; }
+    let t: u64 = env.exprs.tags[w];
+    if t == 7 {
+        if expr_lit_kind(env.exprs, w) == 0 {
+            return NatBig { ok: 1, val: bignum_from_string(expr_lit_val(env.exprs, w)) };
+        }
+        return NatBig { ok: 0, val: bignum_zero() };
+    }
+    if t == 2 {
+        if env.exprs.f1[w] == env.name_nat_zero { return NatBig { ok: 1, val: bignum_from_u64(0) }; }
+    }
+    if t == 3 {
+        let h: u64 = env.exprs.f1[w];
+        let a: u64 = env.exprs.f2[w];
+        if h < env.exprs.tags.len() && env.exprs.tags[h] == 2 {
+            if env.exprs.f1[h] == env.name_nat_succ {
+                let inner: NatBig = nat_bignum_value(env, a);
+                if inner.ok > 0 {
+                    return NatBig { ok: 1, val: bignum_add_small(inner.val, 1) };
+                }
+            }
+        }
+    }
+    return NatBig { ok: 0, val: bignum_zero() };
+}
+
+// Fold a binary Nat op over arbitrary-precision operands. op numbering matches
+// the raw Nat.* dispatch: 1=add 2=sub 3=mul 4=div 5=mod 6=ble 7=beq 8=land
+// 9=lor 10=lxor 11=shl 12=shr 13=pow. Returns the result expr, or 4294967294
+// when either operand is not a Nat value (or a shift/pow amount is unreasonable).
+fn nat_bignum_binop(env: Environment, op: u64, e0: u64, e1: u64) -> u64 {
+    let b0: NatBig = nat_bignum_value(env, e0);
+    if b0.ok == 0 { return 4294967294; }
+    let b1: NatBig = nat_bignum_value(env, e1);
+    if b1.ok == 0 { return 4294967294; }
+    let a: BigNum = b0.val;
+    let b: BigNum = b1.val;
+    if op == 1 { return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_add(a, b))); }
+    if op == 2 { return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_monus(a, b))); }
+    if op == 3 { return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_mul(a, b))); }
+    if op == 4 {
+        if bignum_is_zero(b) { return expr_add_lit_nat(env.exprs, String::from("0")); }
+        return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_div(a, b)));
+    }
+    if op == 5 {
+        if bignum_is_zero(b) { return expr_add_lit_nat(env.exprs, bignum_to_string(a)); }
+        return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_mod(a, b)));
+    }
+    if op == 6 {
+        let bn6: u64 = if bignum_le(a, b) { env.name_bool_true } else { env.name_bool_false };
+        return expr_add_const0(env.exprs, bn6);
+    }
+    if op == 7 {
+        let bn7: u64 = if bignum_eq(a, b) { env.name_bool_true } else { env.name_bool_false };
+        return expr_add_const0(env.exprs, bn7);
+    }
+    if op == 8 { return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_and(a, b))); }
+    if op == 9 { return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_or(a, b))); }
+    if op == 10 { return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_xor(a, b))); }
+    if op == 11 {
+        match bignum_to_u64(b) {
+            Option::Some(n) => {
+                if n > 1048576 { return 4294967294; }
+                return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_shl(a, n)));
+            },
+            Option::None => { return 4294967294; },
+        }
+    }
+    if op == 12 {
+        match bignum_to_u64(b) {
+            Option::Some(n) => {
+                if n > 1048576 { return expr_add_lit_nat(env.exprs, String::from("0")); }
+                return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_shr(a, n)));
+            },
+            Option::None => { return expr_add_lit_nat(env.exprs, String::from("0")); },
+        }
+    }
+    if op == 13 {
+        match bignum_to_u64(b) {
+            Option::Some(n) => {
+                if n > 262144 { return 4294967294; }
+                return expr_add_lit_nat(env.exprs, bignum_to_string(bignum_pow(a, n)));
+            },
+            Option::None => { return 4294967294; },
+        }
+    }
+    return 4294967294;
+}
+
 fn is_const_name(env: Environment, expr: u64, name_idx: u64) -> u64 {
     if expr < env.exprs.tags.len() {
         if env.exprs.tags[expr] == 2 {
@@ -648,6 +747,13 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             }
                             reduced = 1;
                         }
+                        if reduced == 0 {
+                            let bres_pw: u64 = nat_bignum_binop(env, 13, env.exprs.scratch_args[arg_base + num_args - 4], env.exprs.scratch_args[arg_base + num_args - 5]);
+                            if bres_pw != 4294967294 {
+                                cur = rebuild_apps_skip_range(env, bres_pw, env.exprs.scratch_args, arg_base, arg_base + num_args, 5);
+                                reduced = 1;
+                            }
+                        }
                     }
                 }
             }
@@ -713,6 +819,13 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 } else {
                                     cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, nat_pow_string(lhs_cn, rhs_cn)), env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                 }
+                                reduced = 1;
+                            }
+                        }
+                        if reduced == 0 {
+                            let bres_cn: u64 = nat_bignum_binop(env, class_nat_op, env.exprs.scratch_args[arg_base + num_args - 5], env.exprs.scratch_args[arg_base + num_args - 6]);
+                            if bres_cn != 4294967294 {
+                                cur = rebuild_apps_skip_range(env, bres_cn, env.exprs.scratch_args, arg_base, arg_base + num_args, 6);
                                 reduced = 1;
                             }
                         }
@@ -860,6 +973,13 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                 cur = rebuild_apps_skip_range(env, expr_add_const0(env.exprs, bname), env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
                                 reduced = 1;
                             }
+                        }
+                    }
+                    if reduced == 0 {
+                        let bres: u64 = nat_bignum_binop(env, is_nat_op, env.exprs.scratch_args[arg_base + num_args - 1], env.exprs.scratch_args[arg_base + num_args - 2]);
+                        if bres != 4294967294 {
+                            cur = rebuild_apps_skip_range(env, bres, env.exprs.scratch_args, arg_base, arg_base + num_args, 2);
+                            reduced = 1;
                         }
                     }
                 }
