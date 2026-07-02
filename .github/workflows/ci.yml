@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: the workflow only reads the repository.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # vow-lang/vow commit used to build the self-hosted `vowc` that compiles this
+  # kernel. Pinned to the known-good compiler (the base-2^32 bignum merge, #839)
+  # that the kernel is developed against. The kernel builds only with the
+  # self-hosted `vowc`, not the Rust `vow`/`vowr` bootstrap. Bump this when the
+  # kernel needs newer compiler features; `main` also works but is not pinned.
+  VOW_REF: 15c1b933f87eed2b23c176665730baea37706daa
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: kernel
+
+      - name: Checkout vow-lang/vow
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: vow-lang/vow
+          ref: ${{ env.VOW_REF }}
+          path: vow
+
+      - name: Install Rust toolchain
+        # SHA-pinning loses branch-name channel inference, so name the channel.
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: vow
+
+      - name: Build self-hosted vowc
+        working-directory: vow
+        run: |
+          # Stage 0: Rust bootstrap compiler.
+          cargo build --all
+          # Stage 1: build the concatenated self-hosted compiler (no ESBMC —
+          # verification does not affect codegen). Mirrors vow-lang's own CI.
+          bash scripts/concat_vow.sh clif > /tmp/compiler_clif.vow
+          ulimit -v 2000000
+          ./target/debug/vow build --no-verify --no-cache /tmp/compiler_clif.vow -o "$GITHUB_WORKSPACE/vowc"
+          test -x "$GITHUB_WORKSPACE/vowc"
+
+      - name: Build kernel
+        working-directory: kernel
+        env:
+          VOWC: ${{ github.workspace }}/vowc
+        run: |
+          bash scripts/build.sh
+          test -x lean_checker
+
+      - name: Run tutorial suite
+        working-directory: kernel
+        run: bash scripts/run_tests.sh
+
+  lint:
+    # Advisory for now — surfaces shellcheck findings without blocking. Promote
+    # to a required gate once the scripts are clean. shellcheck is preinstalled
+    # on ubuntu-latest, so no extra action is pinned here.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: shellcheck
+        run: shellcheck scripts/*.sh tests/sint/run.sh
