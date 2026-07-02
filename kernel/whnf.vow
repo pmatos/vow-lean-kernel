@@ -890,6 +890,19 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     reduced = 1;
                 }
             }
+            if reduced == 0 && num_args >= 1 && name_idx == env.name_nat_pred {
+                let pv: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
+                if pv != 4294967294 {
+                    cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, if pv == 0 { 0 } else { pv - 1 }), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
+                    reduced = 1;
+                } else {
+                    let pb: NatBig = nat_bignum_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
+                    if pb.ok > 0 {
+                        cur = rebuild_apps_skip_range(env, expr_add_lit_nat(env.exprs, bignum_to_string(bignum_monus(pb.val, bignum_from_u64(1)))), env.exprs.scratch_args, arg_base, arg_base + num_args, 1);
+                        reduced = 1;
+                    }
+                }
+            }
             if reduced == 0 && num_args >= 2 {
                 let mut is_nat_op: u64 = 0;
                 if name_idx == env.name_nat_add { is_nat_op = 1; }
