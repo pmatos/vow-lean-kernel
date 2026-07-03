@@ -29,25 +29,22 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout kernel
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@v7.0.0
         with:
           path: kernel
 
       - name: Checkout vow-lang/vow
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@v7.0.0
         with:
           repository: vow-lang/vow
           ref: ${{ env.VOW_REF }}
           path: vow
 
       - name: Install Rust toolchain
-        # SHA-pinning loses branch-name channel inference, so name the channel.
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo build
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           workspaces: vow
 
@@ -83,6 +80,6 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@v7.0.0
       - name: shellcheck
         run: shellcheck scripts/*.sh tests/sint/run.sh
