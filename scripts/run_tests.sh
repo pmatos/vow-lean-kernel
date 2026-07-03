@@ -46,8 +46,10 @@ expected_outcome() {
     local ndjson="$1"
     local yaml="${ndjson%.ndjson}.yaml"
     if [[ -f "$yaml" ]]; then
-        grep -oP 'outcome:\s*\K\w+' "$yaml" | head -1
-        return
+        # Tolerate a YAML with no parseable outcome: emit nothing and let the
+        # caller's skip branch handle it, rather than aborting under set -e.
+        grep -m1 -oP 'outcome:\s*\K\w+' "$yaml" || true
+        return 0
     fi
     case "/$ndjson/" in
         */good/*) echo accept ;;
