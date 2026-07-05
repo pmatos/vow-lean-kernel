@@ -858,13 +858,13 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                 head2 = env.exprs.f1[head2];
             }
             if n1 == n2 {
-                if is_def_eq_full(env, head1, head2) > 0 {
+                if is_def_eq(env, head1, head2) > 0 {
                     let mut a1: u64 = w1;
                     let mut a2: u64 = w2;
                     let mut all_ok: u64 = 1;
                     let mut ai: u64 = 0;
                     while ai < n1 {
-                        if is_def_eq_full(env, env.exprs.f2[a1], env.exprs.f2[a2]) == 0 {
+                        if is_def_eq(env, env.exprs.f2[a1], env.exprs.f2[a2]) == 0 {
                             all_ok = 0;
                             ai = n1;
                         }
