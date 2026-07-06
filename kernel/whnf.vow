@@ -601,6 +601,13 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     let mut cur: u64 = expr;
     while fuel > 0 {
         fuel = fuel - 1;
+        // Scoped-probe arena ceiling (issue #41): if a HasSize lazy-congruence
+        // probe is over-expanding, stop reducing and hand back the current term.
+        // The probe then reports "not equal" and the caller falls to the eager
+        // path — never an unsound accept, since under-reduction only loses matches.
+        if env.lazy_arena_cap > 0 && env.exprs.tags.len() > env.lazy_arena_cap {
+            return cur;
+        }
         if cur >= env.exprs.tags.len() {
             if do_delta > 0 && orig_expr < env.exprs.cache.len() {
                 expr_whnf_cache_set(env.exprs, orig_expr, cur);
