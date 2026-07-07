@@ -418,6 +418,78 @@ fn app_arg_at(env: Environment, e: u64, pos: u64) -> u64 {
     return 0;
 }
 
+fn app_head_is_constructor_or_literal(env: Environment, e: u64) -> u64 {
+    let head: u64 = app_head(env, e);
+    if head >= env.exprs.tags.len() { return 0; }
+    let tag: u64 = env.exprs.tags[head];
+    if tag == 7 { return 1; }
+    if tag == 2 {
+        let lk: DeclLookup = env_lookup_name(env, env.exprs.f1[head]);
+        if lk.found > 0 && lk.kind == 6 { return 1; }
+    }
+    return 0;
+}
+
+fn app_head_is_bitvec_to_nat(env: Environment, e: u64) -> u64 {
+    let head: u64 = app_head(env, e);
+    if head >= env.exprs.tags.len() { return 0; }
+    if env.exprs.tags[head] != 2 { return 0; }
+    if env.exprs.f1[head] == env.name_bitvec_to_nat { return 1; }
+    return 0;
+}
+
+// True only for the `instRxiHasSize_eq` leaf. The Rxi variants are the ones whose
+// proofs make eager is_def_eq over-expand (issue #41). The Rxc variants
+// (`instRxcHasSize_eq`) are already handled by the eager path via the De-Bruijn
+// hash-consed locals of #31/#33, and firing the lazy probe on them is
+// counterproductive (it over-expands where eager settles), so they are excluded.
+pub fn field_is_has_size_eq(field: String) -> u64 {
+    if field.len() != 17 { return 0; }
+    if field.byte_at(0) != 105 { return 0; }  // i
+    if field.byte_at(1) != 110 { return 0; }  // n
+    if field.byte_at(2) != 115 { return 0; }  // s
+    if field.byte_at(3) != 116 { return 0; }  // t
+    if field.byte_at(4) != 82 { return 0; }   // R
+    if field.byte_at(5) != 120 { return 0; }  // x
+    if field.byte_at(6) != 105 { return 0; }  // i  (Rxi only; Rxc excluded)
+    if field.byte_at(7) != 72 { return 0; }   // H
+    if field.byte_at(8) != 97 { return 0; }   // a
+    if field.byte_at(9) != 115 { return 0; }  // s
+    if field.byte_at(10) != 83 { return 0; }  // S
+    if field.byte_at(11) != 105 { return 0; } // i
+    if field.byte_at(12) != 122 { return 0; } // z
+    if field.byte_at(13) != 101 { return 0; } // e
+    if field.byte_at(14) != 95 { return 0; }  // _
+    if field.byte_at(15) != 101 { return 0; } // e
+    if field.byte_at(16) != 113 { return 0; } // q
+    return 1;
+}
+
+fn current_decl_is_has_size_eq(env: Environment) -> u64 {
+    return env.current_decl_has_size_eq;
+}
+
+fn recursor_major_is_symbolic(env: Environment, app: u64, arg_count: u64, rec_idx: u64) -> u64 {
+    let major_from_head: u64 = env.rec_num_params[rec_idx] + env.rec_num_motives[rec_idx] + env.rec_num_minors[rec_idx] + env.rec_num_indices[rec_idx];
+    if arg_count <= major_from_head { return 0; }
+    let major_pos: u64 = arg_count - 1 - major_from_head;
+    let major: u64 = app_arg_at(env, app, major_pos);
+    if major >= env.exprs.tags.len() { return 0; }
+    if app_head_is_constructor_or_literal(env, major) > 0 { return 0; }
+    return app_head_is_bitvec_to_nat(env, major);
+}
+
+fn should_try_lazy_app_congruence(env: Environment, head: u64, w1: u64, w2: u64, arg_count: u64) -> u64 {
+    if current_decl_is_has_size_eq(env) == 0 { return 0; }
+    let lk: DeclLookup = env_lookup_name(env, env.exprs.f1[head]);
+    if lk.found == 0 { return 0; }
+    if lk.kind != 7 { return 0; }
+    let rec_idx: u64 = lk.val;
+    if recursor_major_is_symbolic(env, w1, arg_count, rec_idx) == 0 { return 0; }
+    if recursor_major_is_symbolic(env, w2, arg_count, rec_idx) == 0 { return 0; }
+    return 1;
+}
+
 // Structural equality after WHNF — no extension rules, cannot cycle.
 // Uses proj_name_canon for cross-type Proj comparison (PProd/Prod etc.)
 fn whnf_structural_eq(env: Environment, e1: u64, e2: u64) -> u64 {
@@ -670,6 +742,9 @@ fn defeq_local_base() -> u64 {
 // Full-WHNF def_eq for non-App structural checks (Lambda bodies, extensions)
 fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
+    // Scoped-probe arena ceiling (issue #41): an over-expanded probe gives up
+    // here (conservative "not equal") so the App-branch caller uses eager.
+    if env.lazy_arena_cap > 0 && env.exprs.tags.len() > env.lazy_arena_cap { return 0; }
     let w1: u64 = whnf(env, e1);
     let w2: u64 = whnf(env, e2);
     if w1 == w2 { return 1; }
@@ -690,10 +765,12 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     return result;
 }
 
-// Compare a single pair: cheap WHNF → lazy delta → return result or push App pairs
-// Returns: 1 = equal, 0 = not equal, 2 = pushed App sub-pairs onto stack (continue)
-fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r: Vec<u64>) -> u64 {
+// Compare a single pair: cheap WHNF → lazy delta → return 1 (equal) or 0 (not).
+// Fully decides the pair via recursion (no work-stack), so is_def_eq below needs
+// no shared stack and stays re-entrant-safe.
+fn is_def_eq_one(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
+    if env.lazy_arena_cap > 0 && env.exprs.tags.len() > env.lazy_arena_cap { return 0; }
     env.cnt_is_def_eq_one = env.cnt_is_def_eq_one + 1;
     // Iterative lazy delta loop for this pair
     let mut cur1: u64 = e1;
@@ -790,6 +867,7 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64, stack_l: Vec<u64>, stack_r:
 
 pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
+    if env.lazy_arena_cap > 0 && env.exprs.tags.len() > env.lazy_arena_cap { return 0; }
     if def_eq_cache_lookup(env, e1, e2) > 0 { return 1; }
     // At deep recursion, fall back to full-WHNF (avoids stack explosion)
     env.def_eq_depth = env.def_eq_depth + 1;
@@ -797,26 +875,18 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
         env.def_eq_depth = env.def_eq_depth - 1;
         return is_def_eq_full(env, e1, e2);
     }
-    // Use shared stack on Environment (avoids per-call Vec allocation)
-    let base: u64 = env.def_eq_lhs.len();
-    env.def_eq_lhs.push(e1);
-    env.def_eq_rhs.push(e2);
-    let mut ok: u64 = 1;
-    while env.def_eq_lhs.len() > base {
-        let a: u64 = env.def_eq_lhs[env.def_eq_lhs.len() - 1];
-        let b: u64 = env.def_eq_rhs[env.def_eq_rhs.len() - 1];
-        env.def_eq_lhs.pop();
-        env.def_eq_rhs.pop();
-        if ok > 0 {
-            let r: u64 = is_def_eq_one(env, a, b, env.def_eq_lhs, env.def_eq_rhs);
-            if r == 0 { ok = 0; }
-        }
-    }
+    // Resolve this pair directly. is_def_eq_one fully decides a pair and does its
+    // sub-work via recursion, so no work-stack is needed. Not driving a shared
+    // env stack keeps is_def_eq re-entrant-safe: it may be re-entered from inside
+    // is_def_eq_core (App congruence fast-path, lazy_delta_step) without
+    // corrupting an in-flight comparison. The old shared env.def_eq_lhs/rhs stack
+    // is what crashed #40's App-spine hybrid on postcond.ndjson (issue #41).
+    let r: u64 = is_def_eq_one(env, e1, e2);
     env.def_eq_depth = env.def_eq_depth - 1;
-    if ok > 0 {
+    if r > 0 {
         def_eq_cache_store(env, e1, e2);
     }
-    return ok;
+    return r;
 }
 
 fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
@@ -858,6 +928,47 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                 head2 = env.exprs.f1[head2];
             }
             if n1 == n2 {
+                // Lazy congruence fast-path (issue #41 / Lean is_def_eq_app):
+                // when both spines share the SAME constant head, compare the args
+                // with the lazy is_def_eq instead of eager is_def_eq_full. Eager
+                // whnf's each arg with full delta, which for the SInt HasSize_eq
+                // recursor proofs unfolds BitVec.toNat and the Nat.rec motive over
+                // a symbolic width without bound (decl 26993 built 6M+ exprs, RSS
+                // to 13GB). Same-headed applications compare argument-by-argument
+                // without over-expanding. Congruence (same head + def-eq args) is
+                // sound, and on failure we fall through to the eager path below so
+                // pairs that only unify under full delta (decl 20613) still accept.
+                //
+                if head1 < env.exprs.tags.len() && head2 < env.exprs.tags.len() {
+                    if env.exprs.tags[head1] == 2 && env.exprs.tags[head2] == 2 {
+                        if env.exprs.f1[head1] == env.exprs.f1[head2] {
+                            if should_try_lazy_app_congruence(env, head1, w1, w2, n1) > 0 && is_levels_eq_at(env, head1, head2) > 0 {
+                                // Bound the probe's arena growth relative to the
+                                // per-decl watermark. The genuinely-blowing member
+                                // (decl 26993 Int16) settles well inside this budget;
+                                // a wider member the eager path already handles hits
+                                // the ceiling, aborts, and falls through to eager.
+                                let cap_saved: u64 = env.lazy_arena_cap;
+                                env.lazy_arena_cap = env.decl_expr_base + 4000000;
+                                let mut la1: u64 = w1;
+                                let mut la2: u64 = w2;
+                                let mut lazy_ok: u64 = 1;
+                                let mut lai: u64 = 0;
+                                while lai < n1 {
+                                    if is_def_eq(env, env.exprs.f2[la1], env.exprs.f2[la2]) == 0 {
+                                        lazy_ok = 0;
+                                        lai = n1;
+                                    }
+                                    la1 = env.exprs.f1[la1];
+                                    la2 = env.exprs.f1[la2];
+                                    lai = lai + 1;
+                                }
+                                env.lazy_arena_cap = cap_saved;
+                                if lazy_ok > 0 { return 1; }
+                            }
+                        }
+                    }
+                }
                 if is_def_eq_full(env, head1, head2) > 0 {
                     let mut a1: u64 = w1;
                     let mut a2: u64 = w2;

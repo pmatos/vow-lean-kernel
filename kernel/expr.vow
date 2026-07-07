@@ -100,13 +100,33 @@ pub fn expr_lbr(arena: ExprArena, idx: u64) -> u64 {
 pub fn expr_infer_cache_get(arena: ExprArena, idx: u64) -> u64 {
     let lo: u64 = arena.cache[idx] % cache_base();
     if lo == 0 { return 4294967294; }
-    return lo - 1;
+    let v: u64 = lo - 1;
+    // A cached index pointing outside the live arena is stale (its target was
+    // truncated after a prior declaration). Treat as a miss so the caller
+    // recomputes rather than dereferencing an out-of-bounds expr (issue #41).
+    // Register the slot as dirty first: it is non-empty but escaped cache_dirty
+    // (that is why it survived the last reset holding a stale target), so the
+    // set-helpers — which only push on an empty→non-empty transition — would let
+    // the recomputed entry escape the next per-decl reset too, and after arena
+    // regrowth the stale index could read back in-bounds as a wrong value.
+    if v >= arena.tags.len() {
+        arena.cache_dirty.push(idx);
+        return 4294967294;
+    }
+    return v;
 }
 
 pub fn expr_whnf_cache_get(arena: ExprArena, idx: u64) -> u64 {
     let hi: u64 = arena.cache[idx] / cache_base();
     if hi == 0 { return 4294967294; }
-    return hi - 1;
+    let v: u64 = hi - 1;
+    // Stale cross-decl slot — see expr_infer_cache_get. Register it dirty so the
+    // recomputed entry cannot escape the next per-decl reset (issue #41).
+    if v >= arena.tags.len() {
+        arena.cache_dirty.push(idx);
+        return 4294967294;
+    }
+    return v;
 }
 
 pub fn expr_infer_cache_set(arena: ExprArena, idx: u64, val: u64) {
