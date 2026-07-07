@@ -60,10 +60,15 @@ expected_outcome() {
 PASS=0
 FAIL=0
 SKIP=0
+MISSING=0
 TOTAL=0
 
 for dir in "${DIRS[@]}"; do
-    [[ -d "$dir" ]] || { echo "SKIP  $dir (no such directory)"; continue; }
+    # A requested directory that does not exist is an error, not a skip: it must
+    # affect the exit status so a renamed/omitted suite can't pass silently. The
+    # all-missing case is caught by the TOTAL==0 guard below; this handles the
+    # partially-missing case (e.g. `run_tests.sh tests/good typo`).
+    [[ -d "$dir" ]] || { echo "ERROR $dir (no such directory)"; MISSING=$((MISSING + 1)); continue; }
     while IFS= read -r -d '' ndjson; do
         TOTAL=$((TOTAL + 1))
         name="${ndjson#./}"
@@ -95,10 +100,15 @@ done
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $SKIP skipped out of $TOTAL tests"
+if [[ "$MISSING" -gt 0 ]]; then
+    noun="directories"
+    [[ "$MISSING" -eq 1 ]] && noun="directory"
+    echo "$MISSING requested test $noun missing"
+fi
 
 if [[ "$TOTAL" -eq 0 ]]; then
     echo "No .ndjson fixtures found under: ${DIRS[*]}"
     exit 1
 fi
 
-[[ "$FAIL" -eq 0 ]]
+[[ "$FAIL" -eq 0 && "$MISSING" -eq 0 ]]
