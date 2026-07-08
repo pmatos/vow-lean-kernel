@@ -101,8 +101,9 @@ declines, as shown in the "arena verdict" column.)
   `mathlib` both OOM (checking vs. loading, respectively) and map to graceful
   declines. No false rejects, no uncaught crashes.
 - **Vow runtime**: OOM exiting with code `1` (colliding with a meaningful app
-  exit code) is worth reporting upstream (vow-lang/vow); the `run` wrapper is the
-  local mitigation.
+  exit code) is reported upstream as
+  [vow-lang/vow#877](https://github.com/vow-lang/vow/issues/877); the `run`
+  wrapper is the local mitigation.
 - **Not done this session (deliberate):** opening the PR against
   `leanprover/lean-kernel-arena`. `arena/checker.yaml` is ready to submit as
   `checkers/vow-lean-kernel.yaml`; bump its `rev` to the merge commit first.
