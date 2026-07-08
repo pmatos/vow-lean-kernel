@@ -469,6 +469,33 @@ fn current_decl_is_has_size_eq(env: Environment) -> u64 {
     return env.current_decl_has_size_eq;
 }
 
+// True for BOTH `instRxiHasSize_eq` and `instRxcHasSize_eq` leaves (byte 6 is
+// unconstrained, unlike field_is_has_size_eq which is Rxi-only). Used by the
+// eager-first lazy *fallback* (issue #44), which — unlike the Rxi lazy-first
+// fast-path — is only reached after eager congruence already failed, so
+// enabling it for Rxc cannot regress the Rxc members the eager path settles
+// (e.g. Int16.instRxcHasSize_eq).
+pub fn field_is_has_size_eq_any(field: String) -> u64 {
+    if field.len() != 17 { return 0; }
+    if field.byte_at(0) != 105 { return 0; }  // i
+    if field.byte_at(1) != 110 { return 0; }  // n
+    if field.byte_at(2) != 115 { return 0; }  // s
+    if field.byte_at(3) != 116 { return 0; }  // t
+    if field.byte_at(4) != 82 { return 0; }   // R
+    if field.byte_at(5) != 120 { return 0; }  // x
+    if field.byte_at(7) != 72 { return 0; }   // H
+    if field.byte_at(8) != 97 { return 0; }   // a
+    if field.byte_at(9) != 115 { return 0; }  // s
+    if field.byte_at(10) != 83 { return 0; }  // S
+    if field.byte_at(11) != 105 { return 0; } // i
+    if field.byte_at(12) != 122 { return 0; } // z
+    if field.byte_at(13) != 101 { return 0; } // e
+    if field.byte_at(14) != 95 { return 0; }  // _
+    if field.byte_at(15) != 101 { return 0; } // e
+    if field.byte_at(16) != 113 { return 0; } // q
+    return 1;
+}
+
 fn recursor_major_is_symbolic(env: Environment, app: u64, arg_count: u64, rec_idx: u64) -> u64 {
     let major_from_head: u64 = env.rec_num_params[rec_idx] + env.rec_num_motives[rec_idx] + env.rec_num_minors[rec_idx] + env.rec_num_indices[rec_idx];
     if arg_count <= major_from_head { return 0; }
@@ -481,6 +508,23 @@ fn recursor_major_is_symbolic(env: Environment, app: u64, arg_count: u64, rec_id
 
 fn should_try_lazy_app_congruence(env: Environment, head: u64, w1: u64, w2: u64, arg_count: u64) -> u64 {
     if current_decl_is_has_size_eq(env) == 0 { return 0; }
+    let lk: DeclLookup = env_lookup_name(env, env.exprs.f1[head]);
+    if lk.found == 0 { return 0; }
+    if lk.kind != 7 { return 0; }
+    let rec_idx: u64 = lk.val;
+    if recursor_major_is_symbolic(env, w1, arg_count, rec_idx) == 0 { return 0; }
+    if recursor_major_is_symbolic(env, w2, arg_count, rec_idx) == 0 { return 0; }
+    return 1;
+}
+
+// Gate for the eager-first lazy *fallback* (issue #44). Same recursor + symbolic
+// BitVec.toNat major shape as should_try_lazy_app_congruence, but keyed on the
+// broader has_size_eq flag (Rxi OR Rxc). This is only consulted AFTER eager
+// congruence returns 0, so it fixes the ISize/Rxc false-reject (eager over-
+// reduces the BitVec.toNat/Nat.rec size formula over concrete width 64 and never
+// converges cold) without touching the Rxc members eager already accepts.
+fn should_try_lazy_rxc_fallback(env: Environment, head: u64, w1: u64, w2: u64, arg_count: u64) -> u64 {
+    if env.current_decl_has_size_eq_any == 0 { return 0; }
     let lk: DeclLookup = env_lookup_name(env, env.exprs.f1[head]);
     if lk.found == 0 { return 0; }
     if lk.kind != 7 { return 0; }
@@ -984,6 +1028,41 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                         ai = ai + 1;
                     }
                     if all_ok > 0 { return 1; }
+                }
+                // Eager-first lazy fallback (issue #44). When eager congruence
+                // over a has_size_eq recursor spine (Rxi OR Rxc) failed above,
+                // retry the args with the LAZY is_def_eq. Eager whnf's the
+                // symbolic BitVec.toNat major and reduces the size formula over
+                // the concrete 64-bit width, recursing ~1000 deep without
+                // converging cold on the ISize/Rxc member; lazy congruence
+                // compares argument-by-argument (the differing subterms —
+                // ISize.toBitVec lo vs HasModel.encode … lo — are def-eq) without
+                // that over-expansion. Reached only after eager returned 0, so
+                // the Rxc members eager settles (Int16) never take this path.
+                if head1 < env.exprs.tags.len() && head2 < env.exprs.tags.len() {
+                    if env.exprs.tags[head1] == 2 && env.exprs.tags[head2] == 2 {
+                        if env.exprs.f1[head1] == env.exprs.f1[head2] {
+                            if should_try_lazy_rxc_fallback(env, head1, w1, w2, n1) > 0 && is_levels_eq_at(env, head1, head2) > 0 {
+                                let cap_saved2: u64 = env.lazy_arena_cap;
+                                env.lazy_arena_cap = env.decl_expr_base + 4000000;
+                                let mut fa1: u64 = w1;
+                                let mut fa2: u64 = w2;
+                                let mut fb_ok: u64 = 1;
+                                let mut fbi: u64 = 0;
+                                while fbi < n1 {
+                                    if is_def_eq(env, env.exprs.f2[fa1], env.exprs.f2[fa2]) == 0 {
+                                        fb_ok = 0;
+                                        fbi = n1;
+                                    }
+                                    fa1 = env.exprs.f1[fa1];
+                                    fa2 = env.exprs.f1[fa2];
+                                    fbi = fbi + 1;
+                                }
+                                env.lazy_arena_cap = cap_saved2;
+                                if fb_ok > 0 { return 1; }
+                            }
+                        }
+                    }
                 }
             }
             structural_done = 1;
