@@ -11,7 +11,7 @@ set -uo pipefail
 #       <label>=<file.ndjson> [<label>=<file.ndjson> ...]
 
 CHECKER="./lean_checker"
-MEM_LIMIT=8388608          # 8 GiB, matches checker.yaml's run command
+MEM_LIMIT=12582912         # 12 GiB, matches checker.yaml's run command
 OUT=""                     # markdown results file; default: stdout only
 LOGDIR="${TMPDIR:-/tmp}/lean-dry-run"
 

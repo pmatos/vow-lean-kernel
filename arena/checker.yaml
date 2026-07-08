@@ -60,8 +60,13 @@ run: |
   # (a JSON marker on stderr) and report it as a decline (exit 2): an honest
   # "exceeded my memory budget", not a claim that the proof is invalid. Genuine
   # rejects (exit 1, no OOM marker) and real crashes are left untouched.
+  #
+  # Cap = 12 GiB: the dry-run showed the `Init` accept run peaks at ~7.6 GB, so
+  # 8 GB left almost no headroom; 12 GB is comfortable yet stays below a normal
+  # arena host's RAM, so a genuine OOM still surfaces as Vow's graceful
+  # allocation failure (→ decline) rather than an OS OOM-kill (uncatchable).
   err="$(mktemp)"
-  ( ulimit -v 8388608 && ./lean_checker "$IN" ) 2>"$err"
+  ( ulimit -v 12582912 && ./lean_checker "$IN" ) 2>"$err"
   rc=$?
   cat "$err" >&2
   if [ "$rc" -ne 0 ] && grep -q '"error":"OutOfMemory"' "$err"; then rc=2; fi

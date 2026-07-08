@@ -2,9 +2,10 @@
 
 Local characterization of the checker on real `lean4export` NDJSON, to know what
 the arena will report before submitting. Inputs match the arena's `init` / `std`
-/ `mathlib` test modules. Each run uses the clean-room-built `lean_checker` under
-`ulimit -v 8G` (the cap `checker.yaml`'s `run` command sets), measured with
-`/usr/bin/time -v`.
+/ `mathlib` test modules. Each run uses the clean-room-built `lean_checker`,
+measured with `/usr/bin/time -v`. These numbers were taken under an `ulimit -v
+8G` cap; the `run` command's cap has since been **raised to 12 GB** to give the
+`init` accept run headroom (see Resource envelope).
 
 Machine: 24 cores, 124 GB RAM (Linux). Runs were serial (one checker at a time),
 so wall time and max RSS are uncontended, but they are still only *indicative* —
@@ -35,11 +36,12 @@ Validated three ways against the clean-room binary:
 | genuine reject (`tests/bad` fixture)   | 1 | no  | **1 — reject** |
 | accept (tutorial fixture)              | 0 | no  | **0 — accept** |
 
-Why the 8 GB cap stays: the runtime's graceful OOM detection fires when a Vow
-allocation hits the `ulimit -v` ceiling. Keeping the cap *below* the host's
-physical RAM is what makes an OOM a graceful decline rather than an OS
-OOM-kill (SIGKILL → uncatchable `error`). 8 GB gives that on any normal arena
-host.
+Why the cap is 12 GB: the runtime's graceful OOM detection fires when a Vow
+allocation hits the `ulimit -v` ceiling, so the cap must sit *below* the host's
+physical RAM — otherwise the OS OOM-killer strikes first (SIGKILL → uncatchable
+`error`). 8 GB gave that but left `init` almost no headroom (it needs 7.6 GB);
+12 GB keeps the graceful behaviour on any normal arena host (≥16 GB) while giving
+`init` comfortable room.
 
 ## Build & smoke
 
@@ -76,20 +78,19 @@ declines, as shown in the "arena verdict" column.)
 
 ## Resource envelope
 
-- **`init` (the accept test): 7.63 GB max RSS under the 8 GB cap — only ~4.7%
-  headroom.** This is heavier than the older ~5 GB figure (the clean-room
-  self-hosted `vowc` differs from the local prebuilt one). It passes on this
-  host, but the margin is thin: a slightly tighter arena host could push `init`
-  itself into an OOM→decline, losing the pass. **Decision point for submission:**
-  either accept the thin margin at 8 GB, or raise the `run` cap (e.g. 10–12 GB)
-  if the arena hosts have the RAM — a one-line change in `checker.yaml`.
+- **`init` (the accept test): 7.63 GB max RSS — under the original 8 GB cap that
+  was only ~4.7% headroom.** This is heavier than the older ~5 GB figure (the
+  clean-room self-hosted `vowc` differs from the local prebuilt one). **Resolved:**
+  the `run` cap is now **12 GB**, giving `init` ~57% headroom while staying below
+  typical arena host RAM (so an OOM still surfaces as a graceful decline). The
+  7.63 GB / 8 GB figures here are from the original 8 GB measurement run.
 - **`std`**: OOMs while *checking*, at decl ~32,900/89,805 (`Std.DTreeMap`
   region) — declines via the OOM mapping.
 - **`mathlib`**: OOMs while *loading* the environment, before checking any
   declaration. The full Mathlib export (5.25 GB / 100M lines) exceeds 8 GB just
   to ingest. This is a distinct scaling limit from `std`'s: whole-library inputs
-  won't load under an 8 GB cap regardless of proof difficulty. Declines via the
-  OOM mapping.
+  won't load regardless of proof difficulty, and raising the cap only defers the
+  load OOM. Declines via the OOM mapping.
 - **Wall time**: `init` ~83 min on this host (indicative). `std` spends its first
   ~83 min re-checking the `Init` prefix before reaching new declarations;
   `mathlib` never gets past loading (~34 min to OOM).
