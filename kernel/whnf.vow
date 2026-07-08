@@ -1200,7 +1200,12 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                               if ni == 0 {
                                 let cs_e: u64 = env.ind_ctor_start[e_ind_idx];
                                 let nf_e: u64 = env.ind_ctor_num_fields[cs_e];
-                                if nf_e > 0 {
+                                // Structure eta applies for any single-ctor, no-index
+                                // structure, including nullary constructors (nf_e == 0,
+                                // e.g. PUnit/Unit): the sole inhabitant is `Ctor params`,
+                                // so eta-expand the neutral major to it and let iota fire
+                                // on the next whnf iteration. A 0-field, 0-index, single-
+                                // ctor type is always a subsingleton, so this is sound.
                                   let rs_e: u64 = env.rec_rule_start[rec_idx];
                                   let ctor_name_e: u64 = env.rec_rule_ctors[rs_e];
                                   let ind_nlp_e: u64 = env.decl_lps[ind_lk_e.idx].len();
@@ -1239,7 +1244,6 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                   }
                                   cur = new_rec_e;
                                   reduced = 1;
-	                          }
 	                        }
 	                    }
                     }
