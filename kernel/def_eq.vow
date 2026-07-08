@@ -507,13 +507,20 @@ fn recursor_major_is_symbolic(env: Environment, app: u64, arg_count: u64, rec_id
 }
 
 fn should_try_lazy_app_congruence(env: Environment, head: u64, w1: u64, w2: u64, arg_count: u64) -> u64 {
-    if current_decl_is_has_size_eq(env) == 0 { return 0; }
-    let lk: DeclLookup = env_lookup_name(env, env.exprs.f1[head]);
-    if lk.found == 0 { return 0; }
-    if lk.kind != 7 { return 0; }
-    let rec_idx: u64 = lk.val;
-    if recursor_major_is_symbolic(env, w1, arg_count, rec_idx) == 0 { return 0; }
-    if recursor_major_is_symbolic(env, w2, arg_count, rec_idx) == 0 { return 0; }
+    // Fire the lazy-first congruence fast-path for any same-headed application
+    // inside a has_size_eq proof (Rxi OR Rxc). The eager path over-expands
+    // BitVec.toNat / Nat.rec over symbolic SInt widths: for the Int8/16/32
+    // RxcHasSize_eq proofs the two sides differ only in how the width is written
+    // (`Nat.succ 15` vs the literal `16`), and eager whnf's BitVec.toNat over the
+    // symbolic bits to millions of exprs before failing (decl 20454 burned the
+    // whole 5M fuel budget). These comparisons are NOT at a recursor spine — the
+    // failing pair is `Eq Sort (Eq (HasSize _) A B) True`, whose congruence walks
+    // down through HasSize.mk/BitVec.toNat — so the original recursor-major gate
+    // never matched and eager blew up. Lazy congruence compares arguments (widths,
+    // rotate args) directly. Sound (same head + def-eq args) and falls through to
+    // the eager path on failure, bounded by the arena cap. The caller has already
+    // checked both heads are the same constant.
+    if env.current_decl_has_size_eq_any == 0 { return 0; }
     return 1;
 }
 
