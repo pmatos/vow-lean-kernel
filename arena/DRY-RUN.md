@@ -62,6 +62,12 @@ Generated with `lean4export`, matching the arena's test modules:
 | std | `Std` | v4.29.0 | 502 MB | 89,805 |
 | mathlib | `Mathlib` | v4.29.1 | 5.25 GB | (100M lines) |
 
+> **Toolchain note:** the arena runs `init`/`std` at **v4.29.1** — their
+> `leanfile` tests inherit `tests/lean-toolchain` (v4.29.1). These were measured
+> at v4.29.0, a Lean *patch* difference: the accept/decline verdicts are robust,
+> though the exact RSS/wall figures are indicative. `gen-inputs.sh` now pins
+> v4.29.1 for all three so future runs match the arena exactly.
+
 ## Results (raw exit codes; OOM→decline mapping noted)
 
 | input | verdict | raw exit | arena verdict | wall | max RSS | note |

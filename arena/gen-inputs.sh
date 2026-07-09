@@ -20,7 +20,10 @@ set -euo pipefail
 
 OUT="${1:-$HOME/dry-run-inputs}"
 WORK="${2:-$HOME/.cache/lean-arena-gen}"
-INIT_STD_TOOLCHAIN="v4.29.0"   # arena init/std are Lean core
+# arena init.yaml/std.yaml are `leanfile` tests → they inherit the arena's
+# tests/lean-toolchain, which pins v4.29.1. Match it so the exports (and their
+# memory/verdict characteristics) reflect what the arena actually runs.
+INIT_STD_TOOLCHAIN="v4.29.1"
 MATHLIB_REF="v4.29.1"          # arena tests/mathlib.yaml
 mkdir -p "$OUT" "$WORK"
 
