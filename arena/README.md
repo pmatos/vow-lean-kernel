@@ -48,6 +48,20 @@ tallying accept/reject/decline/error. Mirrors how the arena invokes the checker.
 arena/dry-run.sh <label>=<file.ndjson> [<label>=<file.ndjson> ...]
 ```
 
+## `gen-inputs.sh`
+
+Regenerates the dry-run inputs (`init` / `std` / `mathlib` NDJSON) with
+`lean4export`, matching the arena's test modules and toolchains. The exports are
+large (~6 GB total) and reproducible, so they are **not** committed — regenerate
+on demand:
+
+```
+arena/gen-inputs.sh [OUT_DIR] [WORK_DIR] [init|std|mathlib|all]
+```
+
+Needs `elan` (lake/lean) and `git`. `init`/`std` take seconds; `mathlib` takes a
+few minutes (clones mathlib4 @ v4.29.1 + `lake exe cache get` + export).
+
 ## `DRY-RUN.md`
 
 Results of the local dry-run: per-input verdict, time, and memory, plus the

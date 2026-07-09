@@ -25,7 +25,13 @@ The arena provides a graduated tutorial test sequence that guides incremental im
 
 ### Registering the checker
 
-Create a YAML file in `checkers/` following the `schemas/checker.json` spec. It defines the build command, run command (receives `$IN` with the NDJSON test file path), git ref, and description. Test files can be downloaded from the arena site for offline development.
+The submission lives in [`arena/`](arena/):
+- `checker.yaml` — the arena `checkers/*.yaml` (validated against `schemas/checker.json`): `build` self-hosts `vowc` then builds the kernel; `run` enforces `ulimit -v 12G` and maps a Vow-runtime OOM to a decline (exit 2) so it isn't mistaken for a reject.
+- `dry-run.sh` — run the checker over NDJSON inputs, recording verdict / wall time / max RSS.
+- `gen-inputs.sh` — regenerate the `init`/`std`/`mathlib` inputs via `lean4export` (large, reproducible, **not committed**).
+- `DRY-RUN.md` — measured results.
+
+Submitted to the arena as `checkers/vow-lean-kernel.yaml` in leanprover/lean-kernel-arena#68. Test files can also be downloaded from the arena site for offline development.
 
 ## Toolchain
 
