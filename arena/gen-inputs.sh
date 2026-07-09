@@ -55,8 +55,17 @@ export_core_module() { # $1 = module  $2 = out.ndjson
 # Export the whole Mathlib library (needs the real project + prebuilt cache).
 export_mathlib() { # $1 = out.ndjson
     local out="$1" dir="$WORK/mathlib4" l4x
-    [ -d "$dir" ] || git clone -q --depth 1 --branch "$MATHLIB_REF" \
-        https://github.com/leanprover-community/mathlib4 "$dir"
+    # Ensure the checkout is at MATHLIB_REF. The work dir is persistent, so a
+    # cached mathlib4 from a prior run (or a different MATHLIB_REF) must be
+    # fetched + reset rather than blindly reused — otherwise we'd export the
+    # wrong revision and silently break arena parity.
+    if [ -d "$dir/.git" ]; then
+        git -C "$dir" fetch -q --depth 1 origin "$MATHLIB_REF"
+        git -C "$dir" checkout -q -f FETCH_HEAD
+    else
+        git clone -q --depth 1 --branch "$MATHLIB_REF" \
+            https://github.com/leanprover-community/mathlib4 "$dir"
+    fi
     ( cd "$dir" && lake exe cache get ) >&2
     l4x="$(build_lean4export "$MATHLIB_REF")"
     echo ">> exporting Mathlib -> $out" >&2
