@@ -1085,11 +1085,9 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             // Int.negOfNat / Int.subNatNat inside omega certificates —
                             // iota-reduce on huge literals. Mirrors the Nat.pred fold.
                             //
-                            // The exact value 4294967294 is deliberately left stuck (as
-                            // before this change): nothing in init needs Nat.rec reduced
-                            // on it, and destructuring it changes the reduction path of
-                            // the SInt RxcHasSize_eq proofs (e.g. Int32) into an eager
-                            // BitVec.toNat blowup the eager def_eq cannot settle.
+                            // The exact value 4294967294 is handled by the branch below
+                            // (a <=19-digit literal whose u64 value equals the sentinel can
+                            // only be 4294967294).
                             let mb: NatBig = nat_bignum_value(env, major_head);
                             if mb.ok > 0 {
                                 if bignum_is_zero(mb.val) {
@@ -1100,6 +1098,21 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                     env.exprs.scratch_args.push(pred_big);
                                 }
                             }
+                        } else if env.current_decl_has_size_eq_any == 0 {
+                            // lit_val == 4294967294 collides with the u64 overflow sentinel
+                            // but is the genuine value here: a <=19-digit literal whose u64
+                            // value equals the sentinel can only be 4294967294. Destructure
+                            // it to Nat.succ 4294967293 like any other successor literal so
+                            // Nat.rec/casesOn/matches on it iota-reduce instead of sticking
+                            // (#51).
+                            //
+                            // Gated out of the HasSize_eq path: forcing this reduction there
+                            // turns the SInt RxcHasSize_eq proofs (e.g. Int32) into an eager
+                            // BitVec.toNat blowup the eager def_eq cannot settle (#41/#42/#44);
+                            // those proofs accept without it, so 4294967294 stays stuck there.
+                            let pred_lit: u64 = expr_add_nat_lit(env.exprs, lit_val - 1);
+                            major_head = expr_add_const0(env.exprs, env.name_nat_succ);
+                            env.exprs.scratch_args.push(pred_lit);
                         }
                     }
                     let major_args_len: u64 = env.exprs.scratch_args.len() - major_args_base;
