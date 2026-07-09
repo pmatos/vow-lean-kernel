@@ -6,8 +6,10 @@ Artifacts for registering this kernel with the
 ## `checker.yaml`
 
 The checker definition, tracked here as the source of truth and validated
-against the arena's `schemas/checker.json`. To register the checker, copy it
-into the arena repo as `checkers/vow-lean-kernel.yaml` and open a PR there.
+against the arena's `schemas/checker.json`. Submitted to the arena as
+`checkers/vow-lean-kernel.yaml` in
+[leanprover/lean-kernel-arena#68](https://github.com/leanprover/lean-kernel-arena/pull/68);
+keep this copy and that one in sync.
 
 It is a **`url`-type** checker: the arena clones this repo (`ref: main`, pinned
 `rev`), runs `build` in the checkout, then `run` once per test with `$IN` set to

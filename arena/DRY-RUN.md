@@ -104,6 +104,7 @@ declines, as shown in the "arena verdict" column.)
   exit code) is reported upstream as
   [vow-lang/vow#877](https://github.com/vow-lang/vow/issues/877); the `run`
   wrapper is the local mitigation.
-- **Not done this session (deliberate):** opening the PR against
-  `leanprover/lean-kernel-arena`. `arena/checker.yaml` is ready to submit as
-  `checkers/vow-lean-kernel.yaml`; bump its `rev` to the merge commit first.
+- **Arena submission:** opened as
+  [leanprover/lean-kernel-arena#68](https://github.com/leanprover/lean-kernel-arena/pull/68)
+  (`checkers/vow-lean-kernel.yaml`). Bump its `rev` if a newer known-good kernel
+  commit lands before it merges.
