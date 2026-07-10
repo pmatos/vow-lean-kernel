@@ -20,6 +20,51 @@ pub fn is_err(v: u64) -> u64 {
     return 0;
 }
 
+fn infer_ctx_cache_miss() -> u64 {
+    return 18446744073709551615;
+}
+
+fn infer_ctx_active(env: Environment) -> u64 {
+    if env.infer_ctx_types.len() > 0 { return 1; }
+    return 0;
+}
+
+fn infer_ctx_current_token(env: Environment) -> u64 {
+    return env.infer_ctx_tokens[env.infer_ctx_tokens.len() - 1];
+}
+
+fn infer_ctx_cache_hash(env: Environment, expr: u64, token: u64) -> u64 {
+    return (expr * 40503 + token * 65537) % env.infer_ctx_cache_result.len();
+}
+
+fn infer_ctx_cache_lookup(env: Environment, expr: u64) -> u64 {
+    let token: u64 = infer_ctx_current_token(env);
+    let h: u64 = infer_ctx_cache_hash(env, expr, token);
+    if env.infer_ctx_cache_token[h] == token && env.infer_ctx_cache_expr[h] == expr {
+        return env.infer_ctx_cache_result[h];
+    }
+    return infer_ctx_cache_miss();
+}
+
+fn infer_ctx_cache_store(env: Environment, expr: u64, result: u64) {
+    let token: u64 = infer_ctx_current_token(env);
+    let h: u64 = infer_ctx_cache_hash(env, expr, token);
+    env.infer_ctx_cache_expr[h] = expr;
+    env.infer_ctx_cache_token[h] = token;
+    env.infer_ctx_cache_result[h] = result;
+}
+
+fn infer_ctx_push(env: Environment, ty: u64) {
+    env.infer_ctx_types.push(ty);
+    env.infer_ctx_tokens.push(env.infer_ctx_next_token);
+    env.infer_ctx_next_token = env.infer_ctx_next_token + 1;
+}
+
+fn infer_ctx_pop(env: Environment) {
+    env.infer_ctx_types.pop();
+    env.infer_ctx_tokens.pop();
+}
+
 pub fn ensure_sort(env: Environment, expr: u64) -> u64 {
     if is_err(expr) > 0 {
         return err_val();
@@ -110,16 +155,15 @@ fn infer_lambda(env: Environment, name: u64, ty: u64, body: u64, bi: u64) -> u64
     if is_err(ty_sort) > 0 {
         return err_val();
     }
-    let local_id: u64 = env.next_local_id;
-    env.next_local_id = env.next_local_id + 1;
-    let local_expr: u64 = expr_add_local(env.exprs, local_id, ty);
-    let opened_body: u64 = instantiate(env, body, local_expr);
-    let body_ty: u64 = infer(env, opened_body);
+    infer_ctx_push(env, ty);
+    let body_ty: u64 = infer(env, body);
     if is_err(body_ty) > 0 {
+        infer_ctx_pop(env);
         return err_val();
     }
-    let abstracted: u64 = abstract_expr(env, body_ty, local_id);
-    return expr_add_forall(env.exprs, name, ty, abstracted, bi);
+    let result: u64 = expr_add_forall(env.exprs, name, ty, body_ty, bi);
+    infer_ctx_pop(env);
+    return result;
 }
 
 fn infer_forall(env: Environment, name: u64, ty: u64, body: u64, bi: u64) -> u64 {
@@ -131,20 +175,21 @@ fn infer_forall(env: Environment, name: u64, ty: u64, body: u64, bi: u64) -> u64
     if is_err(level_u) > 0 {
         return err_val();
     }
-    let local_id: u64 = env.next_local_id;
-    env.next_local_id = env.next_local_id + 1;
-    let local_expr: u64 = expr_add_local(env.exprs, local_id, ty);
-    let opened_body: u64 = instantiate(env, body, local_expr);
-    let body_ty: u64 = infer(env, opened_body);
+    infer_ctx_push(env, ty);
+    let body_ty: u64 = infer(env, body);
     if is_err(body_ty) > 0 {
+        infer_ctx_pop(env);
         return err_val();
     }
     let level_v: u64 = ensure_sort(env, body_ty);
     if is_err(level_v) > 0 {
+        infer_ctx_pop(env);
         return err_val();
     }
     let result_level: u64 = level_imax(env, level_u, level_v);
-    return expr_add_sort(env.exprs, result_level);
+    let result: u64 = expr_add_sort(env.exprs, result_level);
+    infer_ctx_pop(env);
+    return result;
 }
 
 fn infer_let(env: Environment, ty: u64, val: u64, body: u64) -> u64 {
@@ -274,7 +319,12 @@ fn infer_uncached(env: Environment, expr: u64) -> u64 {
         return env.exprs.f2[expr];
     }
     if t == 0 {
-        return err_val();
+        let idx: u64 = env.exprs.f1[expr];
+        if idx >= env.infer_ctx_types.len() {
+            return err_val();
+        }
+        let ty: u64 = env.infer_ctx_types[env.infer_ctx_types.len() - 1 - idx];
+        return lift(env, ty, 0, idx + 1);
     }
     if t == 8 {
         return infer_proj(env, env.exprs.f1[expr], env.exprs.f2[expr], env.exprs.f3[expr]);
@@ -315,7 +365,13 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return err_val();
     }
-    if expr < env.exprs.cache.len() {
+    let contextual: u64 = infer_ctx_active(env);
+    if contextual > 0 {
+        let scoped_cached: u64 = infer_ctx_cache_lookup(env, expr);
+        if scoped_cached != infer_ctx_cache_miss() {
+            return scoped_cached;
+        }
+    } else if expr < env.exprs.cache.len() {
         let cached: u64 = expr_infer_cache_get(env.exprs, expr);
         if cached != 4294967294 {
             return cached;
@@ -329,10 +385,14 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
         env.cnt_infer_tag[tag_v] = env.cnt_infer_tag[tag_v] + 1;
     }
     let result: u64 = infer_uncached(env, expr);
-    while env.exprs.cache.len() <= expr {
-        env.exprs.cache.push(0);
+    if contextual > 0 {
+        infer_ctx_cache_store(env, expr, result);
+    } else {
+        while env.exprs.cache.len() <= expr {
+            env.exprs.cache.push(0);
+        }
+        expr_infer_cache_set(env.exprs, expr, result);
     }
-    expr_infer_cache_set(env.exprs, expr, result);
     return result;
 }
 
