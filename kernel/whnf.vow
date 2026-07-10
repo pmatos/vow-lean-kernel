@@ -586,6 +586,38 @@ fn bitvec64_value(env: Environment, expr: u64) -> u64 {
     return 4294967294;
 }
 
+// Should the genuine Nat literal 4294967294 (the u64-sentinel collision, #51) be
+// destructured to Nat.succ 4294967293 as this recursor's major? Only when the
+// applicable successor minor premise DISCARDS its induction hypothesis — i.e. the
+// reduction is a single iota step (casesOn-like), not a recursion that would
+// unwind a ~4-billion-step succ chain (the Char.ofOrdinal_ordinal runaway, #56).
+// Shape-based, not declaration-name based: Nat.casesOn (a def that unfolds to
+// Nat.rec with `fun n ih => body` where `body` ignores `ih`) passes; a genuine
+// recursive Nat.rec (whose successor minor uses `ih`) does not. Anything not in
+// the literal `fun pred => fun ih => body` shape stays stuck conservatively.
+fn nat_succ_minor_ignores_ih(env: Environment, rec_idx: u64, arg_base: u64, num_args: u64) -> u64 {
+    let np: u64 = env.rec_num_params[rec_idx];
+    let nm: u64 = env.rec_num_motives[rec_idx];
+    // Nat.succ is Nat's 2nd constructor (cidx 1), so its minor is minor index 1.
+    let minor_from_head: u64 = np + nm + 1;
+    if minor_from_head >= num_args { return 0; }
+    let minor_rev_pos: u64 = num_args - 1 - minor_from_head;
+    let mut minor: u64 = env.exprs.scratch_args[arg_base + minor_rev_pos];
+    // Metadata (mdata, tag 9) is definitionally transparent; peel without unfolding.
+    while minor < env.exprs.tags.len() && env.exprs.tags[minor] == 9 {
+        minor = env.exprs.f1[minor];
+    }
+    if minor >= env.exprs.tags.len() || env.exprs.tags[minor] != 4 { return 0; }
+    let mut ih_lam: u64 = env.exprs.f3[minor];
+    while ih_lam < env.exprs.tags.len() && env.exprs.tags[ih_lam] == 9 {
+        ih_lam = env.exprs.f1[ih_lam];
+    }
+    if ih_lam >= env.exprs.tags.len() || env.exprs.tags[ih_lam] != 4 { return 0; }
+    let ih_body: u64 = env.exprs.f3[ih_lam];
+    if has_loose_bvar_zero(env, ih_body) > 0 { return 0; }
+    return 1;
+}
+
 pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return expr;
@@ -1098,18 +1130,17 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                     env.exprs.scratch_args.push(pred_big);
                                 }
                             }
-                        } else if env.current_decl_has_size_eq_any == 0 {
+                        } else if nat_succ_minor_ignores_ih(env, rec_idx, arg_base, num_args) > 0 {
                             // lit_val == 4294967294 collides with the u64 overflow sentinel
                             // but is the genuine value here: a <=19-digit literal whose u64
                             // value equals the sentinel can only be 4294967294. Destructure
-                            // it to Nat.succ 4294967293 like any other successor literal so
-                            // Nat.rec/casesOn/matches on it iota-reduce instead of sticking
-                            // (#51).
-                            //
-                            // Gated out of the HasSize_eq path: forcing this reduction there
-                            // turns the SInt RxcHasSize_eq proofs (e.g. Int32) into an eager
-                            // BitVec.toNat blowup the eager def_eq cannot settle (#41/#42/#44);
-                            // those proofs accept without it, so 4294967294 stays stuck there.
+                            // it to Nat.succ 4294967293 so Nat.rec/casesOn/matches on it
+                            // iota-reduce instead of sticking (#51) — but ONLY when the
+                            // successor minor discards its IH (single iota step, casesOn-like).
+                            // A genuine recursive Nat.rec on this huge literal would unwind a
+                            // ~4-billion-step succ chain (the Char.ofOrdinal_ordinal runaway);
+                            // it stays stuck so def_eq matches it structurally. Shape-based,
+                            // declaration-independent (supersedes the name gate; #56).
                             let pred_lit: u64 = expr_add_nat_lit(env.exprs, lit_val - 1);
                             major_head = expr_add_const0(env.exprs, env.name_nat_succ);
                             env.exprs.scratch_args.push(pred_lit);
