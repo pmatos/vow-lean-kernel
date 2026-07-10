@@ -21,7 +21,7 @@ the NDJSON path.
   `lean_checker`. The kernel builds *only* with the self-hosted `vowc`.
 - **run** passes the input through `lean_checker` under `ulimit -v 12G` and
   forwards its exit code — except that a Vow-runtime **OutOfMemory** (which
-  exits `1`, colliding with "reject") is remapped to a **decline (2)**, so an
+  exits `1`, colliding with "reject") is remapped to an **error (3)**, so an
   OOM is never reported as a false reject. See `DRY-RUN.md`.
 
 Exit codes follow the arena protocol and map directly (`lka.py`):

@@ -54,15 +54,16 @@ for pair in "${args[@]}"; do
     rss=$(awk -v k="$rss_kb" 'BEGIN{printf "%.2f GB", k/1048576}')
 
     # The Vow runtime exits 1 on OutOfMemory (a JSON marker on stderr, captured
-    # in $tlog). checker.yaml's run wrapper maps that to a decline; mirror it
-    # here so the tally reflects the arena verdict, not the raw exit code.
+    # in $tlog). checker.yaml's run wrapper remaps that to an error (exit 3);
+    # mirror it here so the tally reflects the arena verdict, not the raw exit
+    # code.
     oom=""
-    grep -q '"error":"OutOfMemory"' "$tlog" 2>/dev/null && oom=" (OOM→2)"
+    grep -q '"error":"OutOfMemory"' "$tlog" 2>/dev/null && oom=" (OOM→3)"
     case "$rc" in
         0) v="accept";  acc=$((acc+1)) ;;
         2) v="decline"; dec=$((dec+1)) ;;
-        1) if [ -n "$oom" ]; then v="decline$oom"; dec=$((dec+1)); else v="REJECT"; rej=$((rej+1)); fi ;;
-        *) if [ -n "$oom" ]; then v="decline$oom"; dec=$((dec+1)); else v="ERROR"; err=$((err+1)); fi ;;
+        1) if [ -n "$oom" ]; then v="error$oom"; err=$((err+1)); else v="REJECT"; rej=$((rej+1)); fi ;;
+        *) if [ -n "$oom" ]; then v="error$oom"; err=$((err+1)); else v="ERROR"; err=$((err+1)); fi ;;
     esac
     emit "| $label | $size_mb | $v | $rc | $wall | $rss |"
 done
