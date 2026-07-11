@@ -346,6 +346,11 @@ fn main() -> i32 [io, read] {
             }
             print_str(String::from("]\n"));
         }
+        // Contextual inference must balance every binder push/pop. Clear both
+        // stacks before arena truncation as a lifecycle backstop so no retained
+        // binder type can point at an index that is about to be reused.
+        env.infer_ctx_types.truncate(0);
+        env.infer_ctx_tokens.truncate(0);
         expr_arena_clear_dirty_caches(env.exprs);
         expr_arena_truncate(env.exprs, expr_watermark);
         level_arena_truncate(env.levels, level_watermark);

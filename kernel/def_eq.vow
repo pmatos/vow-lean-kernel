@@ -744,6 +744,7 @@ fn def_eq_cache_hash(env: Environment, e1: u64, e2: u64) -> u64 {
 }
 
 fn def_eq_cache_lookup(env: Environment, e1: u64, e2: u64) -> u64 {
+    if env.infer_ctx_types.len() > 0 { return 0; }
     if expr_lbr(env.exprs, e1) > 0 { return 0; }
     if expr_lbr(env.exprs, e2) > 0 { return 0; }
     let mut a: u64 = e1;
@@ -763,6 +764,7 @@ fn def_eq_cache_lookup(env: Environment, e1: u64, e2: u64) -> u64 {
 }
 
 fn def_eq_cache_store(env: Environment, e1: u64, e2: u64) {
+    if env.infer_ctx_types.len() > 0 { return; }
     if expr_lbr(env.exprs, e1) > 0 { return; }
     if expr_lbr(env.exprs, e2) > 0 { return; }
     let mut a: u64 = e1;

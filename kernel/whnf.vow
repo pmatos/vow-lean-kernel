@@ -590,7 +590,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= env.exprs.tags.len() {
         return expr;
     }
-    if do_delta > 0 && expr < env.exprs.cache.len() {
+    if do_delta > 0 && env.infer_ctx_types.len() == 0 && expr < env.exprs.cache.len() {
         let wc: u64 = expr_whnf_cache_get(env.exprs, expr);
         if wc != 4294967294 {
             return wc;
@@ -609,7 +609,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             return cur;
         }
         if cur >= env.exprs.tags.len() {
-            if do_delta > 0 && orig_expr < env.exprs.cache.len() {
+            if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < env.exprs.cache.len() {
                 expr_whnf_cache_set(env.exprs, orig_expr, cur);
             }
             return cur;
@@ -1386,13 +1386,13 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         env.exprs.scratch_args.truncate(arg_base);
 
         if reduced == 0 {
-            if do_delta > 0 && orig_expr < env.exprs.cache.len() {
+            if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < env.exprs.cache.len() {
                 expr_whnf_cache_set(env.exprs, orig_expr, cur);
             }
             return cur;
         }
     }
-    if do_delta > 0 && orig_expr < env.exprs.cache.len() {
+    if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < env.exprs.cache.len() {
         expr_whnf_cache_set(env.exprs, orig_expr, cur);
     }
     return cur;

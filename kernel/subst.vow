@@ -546,7 +546,14 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let func: u64 = env.exprs.f1[expr];
         let a: u64 = env.exprs.f2[expr];
         let nf: u64 = instantiate_at(env, func, arg, depth);
-        let na: u64 = instantiate_at(env, a, arg, depth);
+        // In App (App f a) a, both occurrences of the shared argument are
+        // instantiated with the same arg and depth. Reuse the transformed
+        // argument already present in nf instead of expanding the DAG twice.
+        let na: u64 = if func < env.exprs.tags.len() && env.exprs.tags[func] == 3 && env.exprs.f2[func] == a && nf < env.exprs.tags.len() && env.exprs.tags[nf] == 3 {
+            env.exprs.f2[nf]
+        } else {
+            instantiate_at(env, a, arg, depth)
+        };
         if nf == func && na == a {
             return expr;
         }
