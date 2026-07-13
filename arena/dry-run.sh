@@ -44,7 +44,11 @@ for pair in "${args[@]}"; do
         emit "| $label | — | **missing** | — | — | — |"; err=$((err+1)); continue
     fi
     size_mb=$(( ( $(stat -c %s "$file") + 524288 ) / 1048576 ))
-    tlog="$LOGDIR/${label}.time"; olog="$LOGDIR/${label}.out"
+    # Sanitize '/' for the log filename: an arena-style label like
+    # tutorial/123_dup_rec_def would otherwise nest into a non-existent dir and
+    # the redirect below would fail, recording a bogus reject/error.
+    safe="${label//\//_}"
+    tlog="$LOGDIR/${safe}.time"; olog="$LOGDIR/${safe}.out"
 
     ( ulimit -v "$MEM_LIMIT" && exec /usr/bin/time -v "$CHECKER" "$file" ) >"$olog" 2>"$tlog"
     rc=$?
