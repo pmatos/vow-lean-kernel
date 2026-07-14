@@ -249,6 +249,23 @@ fn main() -> i32 [io, read] {
         return 3i32;
     }
 
+    // Per-declaration allocation ceiling (issue #59): a runaway reduction that
+    // trips it yields a graceful decline instead of an OOM-kill. Measured in
+    // arena nodes ABOVE the parse-time watermark (the arena truncates back to it
+    // each decl), so it bounds one declaration's temporary growth. Optional
+    // positional arg args[3] overrides the budget — mirroring the args[2] debug
+    // fast-forward, production (`lean_checker <input>`, no extra args) keeps the
+    // default. 0 disables the ceiling. The default sits far above any legitimate
+    // declaration (the widest known, the HasSize congruence probes, settle
+    // inside ~4M nodes) yet trips the ~4-billion-step sentinel runaway early.
+    let mut alloc_budget: u64 = 16000000;
+    if args.len() > 3u64 {
+        alloc_budget = parse_u64_lit(args[3u64], 0u64).val;
+    }
+    if alloc_budget > 0 {
+        env.alloc_hard_cap = expr_watermark + alloc_budget;
+    }
+
     let mut declined: u64 = 0;
     let mut di: u64 = 0;
     while di < env.decl_kinds.len() {
@@ -373,6 +390,7 @@ fn main() -> i32 [io, read] {
         env.def_eq_binder_depth = 0;
         env.whnf_depth = 0;
         env.kernel_fuel = 0;
+        env.alloc_tripped = 0;
         env.cnt_infer_uncached = 0;
         env.cnt_is_def_eq_full = 0;
         env.cnt_is_def_eq_one = 0;
