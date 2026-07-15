@@ -459,20 +459,26 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
     let ty: u64 = env.decl_tys[di];
     let val: u64 = env.decl_vals[di];
 
+    let mut res: u64 = 2;
     if kind == 0 {
-        return check_axiom(env, ty);
+        res = check_axiom(env, ty);
+    } else if kind == 1 || kind == 3 {
+        res = check_def(env, di, ty, val);
+    } else if kind == 2 {
+        res = check_theorem(env, ty, val);
+    } else if kind == 5 {
+        res = check_inductive(env, di);
+    } else if kind == 4 || kind == 6 || kind == 7 {
+        res = 0;
     }
-    if kind == 1 || kind == 3 {
-        return check_def(env, di, ty, val);
+    // A reject reached after the per-decl allocation ceiling tripped (issue #59)
+    // is unreliable: reduction was cut short, so the def_eq that returned "not
+    // equal" may simply not have reduced far enough. Downgrade it to a graceful
+    // decline (the checker is never worse than Lean, which cannot reduce the
+    // runaway either). An accept survives untouched — under-reduction only loses
+    // matches, it never manufactures one, so a surviving accept is still sound.
+    if env.alloc_tripped > 0 && res == 1 {
+        return 2;
     }
-    if kind == 2 {
-        return check_theorem(env, ty, val);
-    }
-    if kind == 5 {
-        return check_inductive(env, di);
-    }
-    if kind == 4 || kind == 6 || kind == 7 {
-        return 0;
-    }
-    return 2;
+    return res;
 }

@@ -640,6 +640,18 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         if env.lazy_arena_cap > 0 && env.exprs.tags.len() > env.lazy_arena_cap {
             return cur;
         }
+        // Always-on per-decl allocation ceiling (issue #59). A reduction runaway
+        // — e.g. a successor minor that discards its own IH yet drives a fresh
+        // Nat.rec on `pred`, unwinding the 4294967294 sentinel over ~4 billion
+        // steps — allocates a distinct term per step, so tags.len() climbs past
+        // the ceiling. Trip the sticky flag and hand back the current term: no
+        // further reduction (hence no further allocation) happens for this decl,
+        // and check_decl_idx downgrades the resulting verdict to a graceful
+        // decline. Under-reduction is sound (it only loses matches).
+        if env.alloc_hard_cap > 0 && env.exprs.tags.len() > env.alloc_hard_cap {
+            env.alloc_tripped = 1;
+            return cur;
+        }
         if cur >= env.exprs.tags.len() {
             if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < env.exprs.cache.len() {
                 expr_whnf_cache_set(env.exprs, orig_expr, cur);
