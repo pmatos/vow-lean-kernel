@@ -129,9 +129,9 @@ pub fn subst_level(env: Environment, level: u64, params: Vec<u64>, args: Vec<u64
     if t == 4 {
         let name: u64 = env.levels.f1[level];
         let mut i: u64 = 0;
-        while i < params.len() {
+        while i < (params.len() as u64) {
             if params[i] == name {
-                if i < args.len() {
+                if i < (args.len() as u64) {
                     return args[i];
                 }
                 return level;
@@ -180,7 +180,7 @@ pub fn subst_level_const_args(env: Environment, level: u64, params: Vec<u64>, ar
         let name: u64 = env.levels.f1[level];
         let arg_count: u64 = expr_level_count(env.exprs, args_expr);
         let mut i: u64 = 0;
-        while i < params.len() {
+        while i < (params.len() as u64) {
             if params[i] == name {
                 if i < arg_count {
                     return expr_level_at(env.exprs, args_expr, i);
@@ -198,7 +198,7 @@ fn subst_levels(env: Environment, lvls: Vec<u64>, params: Vec<u64>, args: Vec<u6
     let result: Vec<u64> = Vec::new();
     let mut i: u64 = 0;
     let mut changed: u64 = 0;
-    while i < lvls.len() {
+    while i < (lvls.len() as u64) {
         let new_l: u64 = subst_level(env, lvls[i], params, args);
         result.push(new_l);
         if new_l != lvls[i] {
@@ -438,7 +438,7 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
     if amount == 0 {
         return expr;
     }
-    if expr < env.exprs.tags.len() {
+    if expr < (env.exprs.tags.len() as u64) {
         if expr_lbr(env.exprs, expr) <= cutoff {
             return expr;
         }
@@ -524,7 +524,7 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
 }
 
 pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 {
-    if expr < env.exprs.tags.len() {
+    if expr < (env.exprs.tags.len() as u64) {
         if expr_lbr(env.exprs, expr) <= depth {
             return expr;
         }
@@ -549,7 +549,7 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         // In App (App f a) a, both occurrences of the shared argument are
         // instantiated with the same arg and depth. Reuse the transformed
         // argument already present in nf instead of expanding the DAG twice.
-        let na: u64 = if func < env.exprs.tags.len() && env.exprs.tags[func] == 3 && env.exprs.f2[func] == a && nf < env.exprs.tags.len() && env.exprs.tags[nf] == 3 {
+        let na: u64 = if func < (env.exprs.tags.len() as u64) && env.exprs.tags[func] == 3 && env.exprs.f2[func] == a && nf < (env.exprs.tags.len() as u64) && env.exprs.tags[nf] == 3 {
             env.exprs.f2[nf]
         } else {
             instantiate_at(env, a, arg, depth)
@@ -623,7 +623,7 @@ pub fn instantiate(env: Environment, body: u64, arg: u64) -> u64 {
 }
 
 fn instantiate_rev_at(env: Environment, expr: u64, args: Vec<u64>, offset: u64, num_args: u64, depth: u64) -> u64 {
-    if expr < env.exprs.tags.len() {
+    if expr < (env.exprs.tags.len() as u64) {
         if expr_lbr(env.exprs, expr) <= depth {
             return expr;
         }
@@ -809,7 +809,7 @@ pub fn abstract_expr(env: Environment, expr: u64, local_id: u64) -> u64 {
 }
 
 fn has_loose_bvar_at(env: Environment, expr: u64, depth: u64) -> u64 {
-    if expr >= env.exprs.tags.len() {
+    if expr >= (env.exprs.tags.len() as u64) {
         return 0;
     }
     if expr_lbr(env.exprs, expr) <= depth {
