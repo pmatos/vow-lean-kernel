@@ -14,7 +14,7 @@ fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices:
 
     let mut pi: u64 = 0;
     while pi < num_params {
-        if cur >= env.exprs.tags.len() || env.exprs.tags[cur] != 5 {
+        if cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[cur] != 5 {
             return err_val();
         }
         cur = env.exprs.f3[cur];
@@ -24,7 +24,7 @@ fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices:
     let mut ii: u64 = 0;
     while ii < num_indices {
         let w: u64 = whnf(env, cur);
-        if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 {
+        if w >= (env.exprs.tags.len() as u64) || env.exprs.tags[w] != 5 {
             return err_val();
         }
         cur = env.exprs.f3[w];
@@ -32,7 +32,7 @@ fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices:
     }
 
     let w: u64 = whnf(env, cur);
-    if w >= env.exprs.tags.len() || env.exprs.tags[w] != 1 {
+    if w >= (env.exprs.tags.len() as u64) || env.exprs.tags[w] != 1 {
         return err_val();
     }
     return env.exprs.f1[w];
@@ -40,7 +40,7 @@ fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices:
 
 fn check_strict_positive(env: Environment, field_ty: u64, ind_name: u64) -> u64 {
     let w: u64 = whnf(env, field_ty);
-    if w >= env.exprs.tags.len() { return 1; }
+    if w >= (env.exprs.tags.len() as u64) { return 1; }
     if env.exprs.tags[w] == 5 {
         let domain: u64 = env.exprs.f2[w];
         if expr_contains_const(env.exprs, domain, ind_name) > 0 {
@@ -69,17 +69,17 @@ fn check_field_universe(env: Environment, field_ty: u64, ind_sort_level: u64) ->
 fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, param_locals: Vec<u64>) -> u64 {
     let args: Vec<u64> = Vec::new();
     let mut head: u64 = result;
-    while head < env.exprs.tags.len() && env.exprs.tags[head] == 3 {
+    while head < (env.exprs.tags.len() as u64) && env.exprs.tags[head] == 3 {
         args.push(env.exprs.f2[head]);
         head = env.exprs.f1[head];
     }
 
-    if head >= env.exprs.tags.len() { return 1; }
+    if head >= (env.exprs.tags.len() as u64) { return 1; }
     if env.exprs.tags[head] != 2 { return 1; }
     if env.exprs.f1[head] != ind_name { return 1; }
 
     let nlvl: u64 = expr_level_count(env.exprs, head);
-    if nlvl != ind_level_params.len() { return 1; }
+    if nlvl != (ind_level_params.len() as u64) { return 1; }
     let mut li: u64 = 0;
     while li < nlvl {
         let l: u64 = expr_level_at(env.exprs, head, li);
@@ -89,11 +89,11 @@ fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_param
     }
 
     let total: u64 = ind_num_params + ind_num_indices;
-    if args.len() != total { return 1; }
+    if (args.len() as u64) != total { return 1; }
 
     let mut pi: u64 = 0;
     while pi < ind_num_params {
-        let arg_idx: u64 = args.len() - 1 - pi;
+        let arg_idx: u64 = (args.len() as u64) - 1 - pi;
         let expected_local: u64 = param_locals[pi];
         if args[arg_idx] != expected_local { return 1; }
         pi = pi + 1;
@@ -101,7 +101,7 @@ fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_param
 
     let mut ii: u64 = 0;
     while ii < ind_num_indices {
-        let arg_idx: u64 = args.len() - 1 - ind_num_params - ii;
+        let arg_idx: u64 = (args.len() as u64) - 1 - ind_num_params - ii;
         if expr_contains_const(env.exprs, args[arg_idx], ind_name) > 0 {
             return 1;
         }
@@ -118,8 +118,8 @@ fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_param
 
     let mut pi: u64 = 0;
     while pi < ctor_num_params {
-        if cty >= env.exprs.tags.len() || env.exprs.tags[cty] != 5 { return 1; }
-        if ity >= env.exprs.tags.len() || env.exprs.tags[ity] != 5 { return 1; }
+        if cty >= (env.exprs.tags.len() as u64) || env.exprs.tags[cty] != 5 { return 1; }
+        if ity >= (env.exprs.tags.len() as u64) || env.exprs.tags[ity] != 5 { return 1; }
 
         let c_domain: u64 = env.exprs.f2[cty];
         let i_domain: u64 = env.exprs.f2[ity];
@@ -138,7 +138,7 @@ fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_param
 
     let mut fi: u64 = 0;
     while fi < ctor_num_fields {
-        if cty >= env.exprs.tags.len() || env.exprs.tags[cty] != 5 { return 1; }
+        if cty >= (env.exprs.tags.len() as u64) || env.exprs.tags[cty] != 5 { return 1; }
 
         let field_ty: u64 = env.exprs.f2[cty];
 
@@ -174,7 +174,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     let mut bi: u64 = 0;
     while bi < total_prefix {
         rec_cur = whnf(env, rec_cur);
-        if rec_cur >= env.exprs.tags.len() || env.exprs.tags[rec_cur] != 5 { return 1; }
+        if rec_cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[rec_cur] != 5 { return 1; }
         let domain: u64 = env.exprs.f2[rec_cur];
         let local_id: u64 = env.next_local_id;
         env.next_local_id = env.next_local_id + 1;
@@ -205,7 +205,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     let mut pi: u64 = 0;
     while pi < ctor_nparams {
         ctor_cur = whnf(env, ctor_cur);
-        if ctor_cur >= env.exprs.tags.len() || env.exprs.tags[ctor_cur] != 5 { return 1; }
+        if ctor_cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[ctor_cur] != 5 { return 1; }
         ctor_cur = instantiate(env, env.exprs.f3[ctor_cur], prefix_locals[pi]);
         pi = pi + 1;
     }
@@ -215,7 +215,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     let mut fi: u64 = 0;
     while fi < rule_nfields {
         ctor_cur = whnf(env, ctor_cur);
-        if ctor_cur >= env.exprs.tags.len() || env.exprs.tags[ctor_cur] != 5 { return 1; }
+        if ctor_cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[ctor_cur] != 5 { return 1; }
         let field_domain: u64 = env.exprs.f2[ctor_cur];
         let fid: u64 = env.next_local_id;
         env.next_local_id = env.next_local_id + 1;
@@ -230,17 +230,17 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     let ctor_result: u64 = whnf(env, ctor_cur);
     let mut ctor_head: u64 = ctor_result;
     let ctor_app_args: Vec<u64> = Vec::new();
-    while ctor_head < env.exprs.tags.len() && env.exprs.tags[ctor_head] == 3 {
+    while ctor_head < (env.exprs.tags.len() as u64) && env.exprs.tags[ctor_head] == 3 {
         ctor_app_args.push(env.exprs.f2[ctor_head]);
         ctor_head = env.exprs.f1[ctor_head];
     }
-    let ctor_total_args: u64 = ctor_app_args.len();
+    let ctor_total_args: u64 = (ctor_app_args.len() as u64);
 
     // Instantiate index binders in rec_cur
     let mut idx_i: u64 = 0;
     while idx_i < num_indices {
         rec_cur = whnf(env, rec_cur);
-        if rec_cur >= env.exprs.tags.len() || env.exprs.tags[rec_cur] != 5 { return 1; }
+        if rec_cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[rec_cur] != 5 { return 1; }
         let idx_pos: u64 = ctor_total_args - 1 - num_params - idx_i;
         let idx_val: u64 = ctor_app_args[idx_pos];
         rec_cur = instantiate(env, env.exprs.f3[rec_cur], idx_val);
@@ -252,7 +252,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
     let ind_lp_names: Vec<u64> = env.ind_type_lps[type_start];
     let ind_levels: Vec<u64> = Vec::new();
     let mut li: u64 = 0;
-    while li < ind_lp_names.len() {
+    while li < (ind_lp_names.len() as u64) {
         ind_levels.push(level_add_param(env.levels, ind_lp_names[li]));
         li = li + 1;
     }
@@ -270,7 +270,7 @@ fn check_rec_rule(env: Environment, ridx: u64, rridx: u64,
 
     // Instantiate major binder
     rec_cur = whnf(env, rec_cur);
-    if rec_cur >= env.exprs.tags.len() || env.exprs.tags[rec_cur] != 5 { return 1; }
+    if rec_cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[rec_cur] != 5 { return 1; }
     let expected_type: u64 = instantiate(env, env.exprs.f3[rec_cur], major);
 
     // Step 6: Apply RHS to all locals and infer
@@ -368,13 +368,13 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
                         let mut k_cur: u64 = ck_ty;
                         let mut kp: u64 = 0;
                         while kp < ck_nparams {
-                            if k_cur >= env.exprs.tags.len() || env.exprs.tags[k_cur] != 5 { return 1; }
+                            if k_cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[k_cur] != 5 { return 1; }
                             k_cur = env.exprs.f3[k_cur];
                             kp = kp + 1;
                         }
                         let mut kf: u64 = 0;
                         while kf < ck_nfields {
-                            if k_cur >= env.exprs.tags.len() || env.exprs.tags[k_cur] != 5 { return 1; }
+                            if k_cur >= (env.exprs.tags.len() as u64) || env.exprs.tags[k_cur] != 5 { return 1; }
                             let k_field_ty: u64 = env.exprs.f2[k_cur];
                             let k_field_sort: u64 = ensure_sort(env, infer(env, k_field_ty));
                             if is_err(k_field_sort) > 0 { return 1; }

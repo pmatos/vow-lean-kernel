@@ -13,7 +13,7 @@ pub struct FindResult {
 }
 
 pub fn find_key(s: String, obj_pos: u64, key: String) -> FindResult vow {
-    requires: obj_pos <= s.len()
+    requires: obj_pos <= (s.len() as u64)
 } {
     let result: FindResult = FindResult { found: 0, pos: 0 };
     match json_find_key(s, obj_pos, key) {
@@ -48,14 +48,14 @@ fn parse_binder_info(s: String, pos: u64) -> u64 {
 
 fn parse_def_hints(s: String, pos: u64) -> DefHint {
     let p: u64 = skip_ws(s, pos);
-    if p < s.len() && s.byte_at(p) == 34 {
+    if p < (s.len() as u64) && s.byte_at(p as i64) == 34 {
         let r: ParseStrResult = json_parse_string(s, p);
         if r.val.eq("abbrev") {
             return DefHint::Abbrev;
         }
         return DefHint::Opaque;
     }
-    if p < s.len() && s.byte_at(p) == 123 {
+    if p < (s.len() as u64) && s.byte_at(p as i64) == 123 {
         match json_find_key(s, p, "regular") {
             Option::Some(reg_pos) => {
                 let height: u64 = json_parse_uint(s, reg_pos).val;
@@ -94,10 +94,10 @@ fn parse_quot_kind(s: String, pos: u64) -> QuotKind {
 
 fn parse_name_line(env: Environment, line: String, in_pos: u64) -> bool {
     let id: u64 = json_parse_uint(line, in_pos).val;
-    if id < env.names.entries.len() {
+    if id < (env.names.entries.len() as u64) {
         return true;
     }
-    while env.names.entries.len() < id {
+    while (env.names.entries.len() as u64) < id {
         env.names.entries.push(make_name_anonymous());
     }
 
@@ -127,7 +127,7 @@ fn parse_name_line(env: Environment, line: String, in_pos: u64) -> bool {
 
 fn parse_level_line(env: Environment, line: String, il_pos: u64) -> bool {
     let id: u64 = json_parse_uint(line, il_pos).val;
-    if id < env.levels.entries.len() {
+    if id < (env.levels.entries.len() as u64) {
         return true;
     }
 
@@ -321,7 +321,7 @@ fn parse_def_decl(env: Environment, line: String) -> bool {
     let mut def_height: u64 = 0;
     let hints_pos2: u64 = unwrap_pos(json_find_key(line, def_pos, "hints"));
     let hp: u64 = skip_ws(line, hints_pos2);
-    if hp < line.len() && line.byte_at(hp) == 123 {
+    if hp < (line.len() as u64) && line.byte_at(hp as i64) == 123 {
         match json_find_key(line, hp, "regular") {
             Option::Some(reg_p) => { def_height = json_parse_uint(line, reg_p).val; },
             Option::None => {},
@@ -432,7 +432,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     let type_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, "types")));
     let types: Vec<InductiveType> = Vec::new();
     let mut ti: u64 = 0;
-    while ti < type_positions.len() {
+    while ti < (type_positions.len() as u64) {
         types.push(parse_one_inductive_type(line, type_positions[ti]));
         ti = ti + 1;
     }
@@ -440,7 +440,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     let ctor_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, "ctors")));
     let ctors: Vec<ConstructorDecl> = Vec::new();
     let mut ci: u64 = 0;
-    while ci < ctor_positions.len() {
+    while ci < (ctor_positions.len() as u64) {
         ctors.push(parse_one_constructor(line, ctor_positions[ci]));
         ci = ci + 1;
     }
@@ -448,15 +448,15 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     let rec_positions: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, ind_pos, "recs")));
     let recs: Vec<RecursorDecl> = Vec::new();
     let mut ri: u64 = 0;
-    while ri < rec_positions.len() {
+    while ri < (rec_positions.len() as u64) {
         recs.push(parse_one_recursor(line, rec_positions[ri]));
         ri = ri + 1;
     }
 
     // Populate flat arrays for inductive types
-    let type_start: u64 = env.ind_type_names.len();
+    let type_start: u64 = (env.ind_type_names.len() as u64);
     let mut ti2: u64 = 0;
-    while ti2 < types.len() {
+    while ti2 < (types.len() as u64) {
         env.ind_type_names.push(types[ti2].name);
         env.ind_type_tys.push(types[ti2].ty);
         env.ind_type_num_params.push(types[ti2].num_params);
@@ -464,12 +464,12 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         env.ind_type_lps.push(types[ti2].level_params);
         ti2 = ti2 + 1;
     }
-    let type_count: u64 = types.len();
+    let type_count: u64 = (types.len() as u64);
 
     // Populate flat arrays for constructors and register (kind=6)
-    let ctor_start: u64 = env.ind_ctor_inducts.len();
+    let ctor_start: u64 = (env.ind_ctor_inducts.len() as u64);
     let mut ci2: u64 = 0;
-    while ci2 < ctors.len() {
+    while ci2 < (ctors.len() as u64) {
         env.ind_ctor_names.push(ctors[ci2].name);
         env.ind_ctor_inducts.push(ctors[ci2].induct);
         env.ind_ctor_tys.push(ctors[ci2].ty);
@@ -479,13 +479,13 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         env_add_decl_simple(env, cn, 6, ctors[ci2].ty, 0, ctors[ci2].level_params, ctors[ci2].name);
         ci2 = ci2 + 1;
     }
-    let ctor_count: u64 = ctors.len();
+    let ctor_count: u64 = (ctors.len() as u64);
 
     // Parse rules directly into env flat arrays from JSON (avoiding nested Vec access)
-    let rec_start: u64 = env.rec_names.len();
+    let rec_start: u64 = (env.rec_names.len() as u64);
     let mut ri2: u64 = 0;
-    while ri2 < rec_positions.len() {
-        let rec_flat_idx: u64 = env.rec_names.len();
+    while ri2 < (rec_positions.len() as u64) {
+        let rec_flat_idx: u64 = (env.rec_names.len() as u64);
         env.rec_names.push(recs[ri2].name);
         env.rec_num_params.push(recs[ri2].num_params);
         env.rec_num_indices.push(recs[ri2].num_indices);
@@ -498,9 +498,9 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
         }
         env.rec_tys.push(recs[ri2].ty);
         env.rec_lps.push(recs[ri2].level_params);
-        let rule_start: u64 = env.rec_rule_ctors.len();
+        let rule_start: u64 = (env.rec_rule_ctors.len() as u64);
         let rules_arr_pos: Vec<u64> = json_parse_object_array(line, unwrap_pos(json_find_key(line, rec_positions[ri2], "rules")));
-        let rule_count: u64 = rules_arr_pos.len();
+        let rule_count: u64 = (rules_arr_pos.len() as u64);
         let mut rj: u64 = 0;
         while rj < rule_count {
             let r_ctor: u64 = json_parse_uint(line, unwrap_pos(json_find_key(line, rules_arr_pos[rj], "ctor"))).val;
@@ -536,7 +536,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     env.ind_rec_start.push(rec_start);
     env.ind_rec_count.push(recs.len());
 
-    let ind_idx: u64 = env.ind_type_start.len() - 1;
+    let ind_idx: u64 = (env.ind_type_start.len() as u64) - 1;
 
     let mut name_str: String = String::from("[inductive]");
     let mut ind_ty: u64 = 0;

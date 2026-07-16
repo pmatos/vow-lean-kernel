@@ -12,21 +12,21 @@ use kernel.def_eq
 use kernel.subst
 
 fn decl_is_has_size_eq(env: Environment, name_idx: u64) -> u64 {
-    if name_idx >= env.names.entries.len() { return 0; }
+    if name_idx >= (env.names.entries.len() as u64) { return 0; }
     let nd: NameData = name_arena_get(env.names, name_idx);
     if nd.tag != 1 { return 0; }
     return field_is_has_size_eq(nd.field_str);
 }
 
 fn decl_is_has_size_eq_any(env: Environment, name_idx: u64) -> u64 {
-    if name_idx >= env.names.entries.len() { return 0; }
+    if name_idx >= (env.names.entries.len() as u64) { return 0; }
     let nd: NameData = name_arena_get(env.names, name_idx);
     if nd.tag != 1 { return 0; }
     return field_is_has_size_eq_any(nd.field_str);
 }
 
 fn debug_walk(env: Environment, expr: u64, depth: u64) [io] {
-    if expr >= env.exprs.tags.len() { return; }
+    if expr >= (env.exprs.tags.len() as u64) { return; }
     let r: u64 = infer(env, expr);
     if is_err(r) == 0 { return; }
     if depth > 15 { return; }
@@ -132,7 +132,7 @@ fn main() -> i32 [io, read] {
     let args: Vec<String> = args();
     let env: Environment = env_new();
 
-    if args.len() > 1u64 {
+    if (args.len() as u64) > 1u64 {
         let h: i64 = fs_open(args[1u64]);
         if h < 0i64 {
             eprintln_str(String::from("error: cannot open input file"));
@@ -171,7 +171,7 @@ fn main() -> i32 [io, read] {
     // lean4export uses PProd for Prod projections, PSigma for Sigma, etc.
     // Map: PProd → Prod, PSigma → Sigma (by looking up both names)
     let mut pni: u64 = 0;
-    while pni < env.names.entries.len() {
+    while pni < (env.names.entries.len() as u64) {
         env.proj_name_canon.push(pni);
         pni = pni + 1;
     }
@@ -185,7 +185,7 @@ fn main() -> i32 [io, read] {
     let prod_lk: DeclLookup = env_lookup_name(env, prod_name);
     if pprod_lk.found > 0 && prod_lk.found > 0 {
         if pprod_lk.kind == 5 && prod_lk.kind == 5 {
-            if pprod_name < env.proj_name_canon.len() {
+            if pprod_name < (env.proj_name_canon.len() as u64) {
                 env.proj_name_canon[pprod_name] = prod_name;
             }
         }
@@ -195,17 +195,17 @@ fn main() -> i32 [io, read] {
     let sigma_lk: DeclLookup = env_lookup_name(env, sigma_name);
     if psigma_lk.found > 0 && sigma_lk.found > 0 {
         if psigma_lk.kind == 5 && sigma_lk.kind == 5 {
-            if psigma_name < env.proj_name_canon.len() {
+            if psigma_name < (env.proj_name_canon.len() as u64) {
                 env.proj_name_canon[psigma_name] = sigma_name;
             }
         }
     }
     // Rewrite Proj f1 fields using the targeted map
     let mut pei: u64 = 0;
-    while pei < env.exprs.tags.len() {
+    while pei < (env.exprs.tags.len() as u64) {
         if env.exprs.tags[pei] == 8 {
             let old_name: u64 = env.exprs.f1[pei];
-            if old_name < env.proj_name_canon.len() {
+            if old_name < (env.proj_name_canon.len() as u64) {
                 let new_name: u64 = env.proj_name_canon[old_name];
                 if new_name != old_name {
                     env.exprs.f1[pei] = new_name;
@@ -221,8 +221,8 @@ fn main() -> i32 [io, read] {
     // Must run AFTER parsing fills decl_name_ids and AFTER PProd/PSigma proj
     // canonicalization above (so the Proj rewrite doesn't shift any decls).
     env_build_name_index(env);
-    let expr_watermark: u64 = env.exprs.tags.len();
-    let level_watermark: u64 = env.levels.tags.len();
+    let expr_watermark: u64 = (env.exprs.tags.len() as u64);
+    let level_watermark: u64 = (env.levels.tags.len() as u64);
     env.decl_expr_base = expr_watermark;
 
     // Debug fast-forward: `lean_checker file.ndjson N` skips type-checking
@@ -232,7 +232,7 @@ fn main() -> i32 [io, read] {
     // cleared per decl. Used to probe the frontier quickly; final acceptance
     // must run with N=0 (no argument).
     let mut skip_until: u64 = 0;
-    if args.len() > 2u64 {
+    if (args.len() as u64) > 2u64 {
         skip_until = parse_u64_lit(args[2u64], 0u64).val;
     }
     // Guard the debug probe against skipping every declaration: an N at or
@@ -240,11 +240,11 @@ fn main() -> i32 [io, read] {
     // through to `return 0i32` — a false accept for any input, including a
     // reject/malformed file. Report an internal error instead. The N=0
     // (no-argument) path is untouched, so real acceptance runs are unaffected.
-    if skip_until > 0 && skip_until >= env.decl_kinds.len() {
+    if skip_until > 0 && skip_until >= (env.decl_kinds.len() as u64) {
         print_str(String::from("ERROR: fast-forward N="));
         print_u64(skip_until);
         print_str(String::from(" >= decl count "));
-        print_u64(env.decl_kinds.len());
+        print_u64(env.decl_kinds.len() as u64);
         print_str(String::from(" (probe would skip every declaration)\n"));
         return 3i32;
     }
@@ -259,7 +259,7 @@ fn main() -> i32 [io, read] {
     // declaration (the widest known, the HasSize congruence probes, settle
     // inside ~4M nodes) yet trips the ~4-billion-step sentinel runaway early.
     let mut alloc_budget: u64 = 16000000;
-    if args.len() > 3u64 {
+    if (args.len() as u64) > 3u64 {
         alloc_budget = parse_u64_lit(args[3u64], 0u64).val;
     }
     if alloc_budget > 0 {
@@ -268,14 +268,14 @@ fn main() -> i32 [io, read] {
 
     let mut declined: u64 = 0;
     let mut di: u64 = 0;
-    while di < env.decl_kinds.len() {
+    while di < (env.decl_kinds.len() as u64) {
         if di % 100 == 0 {
             print_str(String::from("Checking decl "));
             print_u64(di);
             print_str(String::from("/"));
-            print_u64(env.decl_kinds.len());
+            print_u64(env.decl_kinds.len() as u64);
             print_str(String::from(" arena="));
-            print_u64(env.exprs.tags.len());
+            print_u64(env.exprs.tags.len() as u64);
             print_str(String::from("\n"));
         }
         if di < skip_until {
@@ -302,7 +302,7 @@ fn main() -> i32 [io, read] {
         // full init.ndjson run — each dump's String::from() allocations
         // escape to the root region (see vow-lang/vow issue tracker on
         // RegionRootEscape notes) so dumping every cluster bloats memory.
-        let arena_peak: u64 = env.exprs.tags.len();
+        let arena_peak: u64 = (env.exprs.tags.len() as u64);
         let arena_delta: u64 = arena_peak - expr_watermark;
         let mut want_dump: u64 = 0;
         if r == 2 { want_dump = 1; }
@@ -356,7 +356,7 @@ fn main() -> i32 [io, read] {
             print_u64(env.cnt_dfull_projrec);
             print_str(String::from("} tags=["));
             let mut ti: u64 = 0;
-            while ti < env.cnt_infer_tag.len() {
+            while ti < (env.cnt_infer_tag.len() as u64) {
                 if ti > 0 { print_str(String::from(",")); }
                 print_u64(env.cnt_infer_tag[ti]);
                 ti = ti + 1;
@@ -374,13 +374,13 @@ fn main() -> i32 [io, read] {
         env.def_eq_lhs.truncate(0);
         env.def_eq_rhs.truncate(0);
         let mut dci: u64 = 0;
-        while dci < env.def_eq_cache_dirty.len() {
+        while dci < (env.def_eq_cache_dirty.len() as u64) {
             env.def_eq_cache_v[env.def_eq_cache_dirty[dci]] = 0;
             dci = dci + 1;
         }
         env.def_eq_cache_dirty.truncate(0);
         let mut lci: u64 = 0;
-        while lci < env.lvl_cmp_cache_dirty.len() {
+        while lci < (env.lvl_cmp_cache_dirty.len() as u64) {
             env.lvl_cmp_cache_v[env.lvl_cmp_cache_dirty[lci]] = 0;
             lci = lci + 1;
         }
@@ -407,7 +407,7 @@ fn main() -> i32 [io, read] {
         env.cnt_dfull_etaexpand = 0;
         env.cnt_dfull_projrec = 0;
         let mut rti: u64 = 0;
-        while rti < env.cnt_infer_tag.len() {
+        while rti < (env.cnt_infer_tag.len() as u64) {
             env.cnt_infer_tag[rti] = 0;
             rti = rti + 1;
         }

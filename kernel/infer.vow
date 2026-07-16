@@ -34,7 +34,7 @@ fn infer_ctx_current_token(env: Environment) -> u64 {
 }
 
 fn infer_ctx_cache_hash(env: Environment, expr: u64, token: u64) -> u64 {
-    return (expr * 40503 + token * 65537) % env.infer_ctx_cache_result.len();
+    return (expr * 40503 + token * 65537) % (env.infer_ctx_cache_result.len() as u64);
 }
 
 fn infer_ctx_cache_lookup(env: Environment, expr: u64) -> u64 {
@@ -70,7 +70,7 @@ pub fn ensure_sort(env: Environment, expr: u64) -> u64 {
         return err_val();
     }
     let w: u64 = whnf(env, expr);
-    if w >= env.exprs.tags.len() {
+    if w >= (env.exprs.tags.len() as u64) {
         return err_val();
     }
     if env.exprs.tags[w] == 1 {
@@ -84,7 +84,7 @@ fn ensure_forall(env: Environment, expr: u64) -> u64 {
         return err_val();
     }
     let w: u64 = whnf(env, expr);
-    if w >= env.exprs.tags.len() {
+    if w >= (env.exprs.tags.len() as u64) {
         return err_val();
     }
     if env.exprs.tags[w] == 5 {
@@ -100,7 +100,7 @@ fn infer_const(env: Environment, expr: u64) -> u64 {
         return err_val();
     }
     let level_count: u64 = expr_level_count(env.exprs, expr);
-    if level_count != env.decl_lps[lookup.idx].len() {
+    if level_count != (env.decl_lps[lookup.idx].len() as u64) {
         return err_val();
     }
     if env.decl_lps[lookup.idx].len() == 0 {
@@ -217,14 +217,14 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
     let w_sty: u64 = whnf(env, struct_ty);
     let sty_args: Vec<u64> = Vec::new();
     let mut sty_head: u64 = w_sty;
-    while sty_head < env.exprs.tags.len() && env.exprs.tags[sty_head] == 3 {
+    while sty_head < (env.exprs.tags.len() as u64) && env.exprs.tags[sty_head] == 3 {
         sty_args.push(env.exprs.f2[sty_head]);
         sty_head = env.exprs.f1[sty_head];
     }
-    if sty_head >= env.exprs.tags.len() || env.exprs.tags[sty_head] != 2 {
+    if sty_head >= (env.exprs.tags.len() as u64) || env.exprs.tags[sty_head] != 2 {
         return err_val();
     }
-    if sty_args.len() < num_params {
+    if (sty_args.len() as u64) < num_params {
         return err_val();
     }
     let struct_levels: Vec<u64> = expr_get_levels(env.exprs, sty_head);
@@ -239,13 +239,13 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
     let ti: u64 = env.ind_type_num_indices[env.ind_type_start[ind_idx]];
     while skip_params < tp + ti {
         let ws: u64 = whnf(env, ind_sort_ty);
-        if ws >= env.exprs.tags.len() || env.exprs.tags[ws] != 5 { return err_val(); }
+        if ws >= (env.exprs.tags.len() as u64) || env.exprs.tags[ws] != 5 { return err_val(); }
         ind_sort_ty = env.exprs.f3[ws];
         skip_params = skip_params + 1;
     }
     let ind_sort_w: u64 = whnf(env, ind_sort_ty);
     let mut is_prop: u64 = 0;
-    if ind_sort_w < env.exprs.tags.len() && env.exprs.tags[ind_sort_w] == 1 {
+    if ind_sort_w < (env.exprs.tags.len() as u64) && env.exprs.tags[ind_sort_w] == 1 {
         let sort_level: u64 = env.exprs.f1[ind_sort_w];
         if is_level_zero(env, sort_level) > 0 {
             is_prop = 1;
@@ -258,8 +258,8 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
         let mut pp: u64 = 0;
         while pp < num_params {
             let pw: u64 = whnf(env, prop_cur);
-            if pw >= env.exprs.tags.len() || env.exprs.tags[pw] != 5 { return err_val(); }
-            let param_val: u64 = sty_args[sty_args.len() - 1 - pp];
+            if pw >= (env.exprs.tags.len() as u64) || env.exprs.tags[pw] != 5 { return err_val(); }
+            let param_val: u64 = sty_args[(sty_args.len() as u64) - 1 - pp];
             prop_cur = instantiate(env, env.exprs.f3[pw], param_val);
             pp = pp + 1;
         }
@@ -267,7 +267,7 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
         let mut fj: u64 = 0;
         while fj <= proj_idx {
             let fw: u64 = whnf(env, prop_cur);
-            if fw >= env.exprs.tags.len() || env.exprs.tags[fw] != 5 { return err_val(); }
+            if fw >= (env.exprs.tags.len() as u64) || env.exprs.tags[fw] != 5 { return err_val(); }
             let field_ty: u64 = env.exprs.f2[fw];
             let field_body: u64 = env.exprs.f3[fw];
             let field_ty_ty: u64 = infer(env, field_ty);
@@ -294,21 +294,21 @@ fn infer_proj(env: Environment, struct_name: u64, proj_idx: u64, struct_expr: u6
     let mut pi: u64 = 0;
     while pi < num_params {
         let w: u64 = whnf(env, cur_ty);
-        if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 { return err_val(); }
-        let param_val: u64 = sty_args[sty_args.len() - 1 - pi];
+        if w >= (env.exprs.tags.len() as u64) || env.exprs.tags[w] != 5 { return err_val(); }
+        let param_val: u64 = sty_args[(sty_args.len() as u64) - 1 - pi];
         cur_ty = instantiate(env, env.exprs.f3[w], param_val);
         pi = pi + 1;
     }
     let mut fi: u64 = 0;
     while fi < proj_idx {
         let w: u64 = whnf(env, cur_ty);
-        if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 { return err_val(); }
+        if w >= (env.exprs.tags.len() as u64) || env.exprs.tags[w] != 5 { return err_val(); }
         let proj_j: u64 = expr_add_proj(env.exprs, struct_name, fi, struct_expr);
         cur_ty = instantiate(env, env.exprs.f3[w], proj_j);
         fi = fi + 1;
     }
     let w: u64 = whnf(env, cur_ty);
-    if w >= env.exprs.tags.len() || env.exprs.tags[w] != 5 { return err_val(); }
+    if w >= (env.exprs.tags.len() as u64) || env.exprs.tags[w] != 5 { return err_val(); }
     return env.exprs.f2[w];
 }
 
@@ -320,10 +320,10 @@ fn infer_uncached(env: Environment, expr: u64) -> u64 {
     }
     if t == 0 {
         let idx: u64 = env.exprs.f1[expr];
-        if idx >= env.infer_ctx_types.len() {
+        if idx >= (env.infer_ctx_types.len() as u64) {
             return err_val();
         }
-        let ty: u64 = env.infer_ctx_types[env.infer_ctx_types.len() - 1 - idx];
+        let ty: u64 = env.infer_ctx_types[(env.infer_ctx_types.len() as u64) - 1 - idx];
         return lift(env, ty, 0, idx + 1);
     }
     if t == 8 {
@@ -362,7 +362,7 @@ fn infer_uncached(env: Environment, expr: u64) -> u64 {
 }
 
 pub fn infer(env: Environment, expr: u64) -> u64 {
-    if expr >= env.exprs.tags.len() {
+    if expr >= (env.exprs.tags.len() as u64) {
         return err_val();
     }
     let contextual: u64 = infer_ctx_active(env);
@@ -371,7 +371,7 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
         if scoped_cached != infer_ctx_cache_miss() {
             return scoped_cached;
         }
-    } else if expr < env.exprs.cache.len() {
+    } else if expr < (env.exprs.cache.len() as u64) {
         let cached: u64 = expr_infer_cache_get(env.exprs, expr);
         if cached != 4294967294 {
             return cached;
@@ -381,14 +381,14 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     if env.kernel_fuel > 5000000 { return err_val(); }
     env.cnt_infer_uncached = env.cnt_infer_uncached + 1;
     let tag_v: u64 = env.exprs.tags[expr];
-    if tag_v < env.cnt_infer_tag.len() {
+    if tag_v < (env.cnt_infer_tag.len() as u64) {
         env.cnt_infer_tag[tag_v] = env.cnt_infer_tag[tag_v] + 1;
     }
     let result: u64 = infer_uncached(env, expr);
     if contextual > 0 {
         infer_ctx_cache_store(env, expr, result);
     } else {
-        while env.exprs.cache.len() <= expr {
+        while (env.exprs.cache.len() as u64) <= expr {
             env.exprs.cache.push(0);
         }
         expr_infer_cache_set(env.exprs, expr, result);
@@ -444,9 +444,9 @@ fn check_theorem(env: Environment, ty: u64, val: u64) -> u64 {
 pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
     let lps: Vec<u64> = env.decl_lps[di];
     let mut pi: u64 = 0;
-    while pi < lps.len() {
+    while pi < (lps.len() as u64) {
         let mut pj: u64 = pi + 1;
-        while pj < lps.len() {
+        while pj < (lps.len() as u64) {
             if lps[pi] == lps[pj] {
                 return 1;
             }

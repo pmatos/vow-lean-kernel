@@ -62,7 +62,7 @@ fn expr_hash(tag: u64, pf1: u64, pf2: u64, pf3: u64, pf4: u64, pbi: u64, pnondep
 fn str_eq_expr(a: String, b: String) -> u64 {
     if a.len() != b.len() { return 0; }
     let mut i: u64 = 0;
-    while i < a.len() {
+    while i < (a.len() as u64) {
         if a.byte_at(i) != b.byte_at(i) { return 0; }
         i = i + 1;
     }
@@ -109,7 +109,7 @@ pub fn expr_infer_cache_get(arena: ExprArena, idx: u64) -> u64 {
     // set-helpers — which only push on an empty→non-empty transition — would let
     // the recomputed entry escape the next per-decl reset too, and after arena
     // regrowth the stale index could read back in-bounds as a wrong value.
-    if v >= arena.tags.len() {
+    if v >= (arena.tags.len() as u64) {
         arena.cache_dirty.push(idx);
         return 4294967294;
     }
@@ -122,7 +122,7 @@ pub fn expr_whnf_cache_get(arena: ExprArena, idx: u64) -> u64 {
     let v: u64 = hi - 1;
     // Stale cross-decl slot — see expr_infer_cache_get. Register it dirty so the
     // recomputed entry cannot escape the next per-decl reset (issue #41).
-    if v >= arena.tags.len() {
+    if v >= (arena.tags.len() as u64) {
         arena.cache_dirty.push(idx);
         return 4294967294;
     }
@@ -149,7 +149,7 @@ fn find_or_push_lit(arena: ExprArena, plit_kind: u64, plit_val: String) -> u64 {
     let h: u64 = expr_hash(7, plit_kind, 0, 0, 0, 0, 0, 0);
     let mut cur: u64 = arena.bucket_head[h];
     while cur != chain_nil() {
-        if cur < arena.tags.len() {
+        if cur < (arena.tags.len() as u64) {
             if arena.tags[cur] == 7 && arena.f1[cur] == plit_kind {
                 if str_eq_expr(arena.lit_val[arena.f2[cur]], plit_val) > 0 {
                     return cur;
@@ -158,8 +158,8 @@ fn find_or_push_lit(arena: ExprArena, plit_kind: u64, plit_val: String) -> u64 {
         }
         cur = arena.hash_next[cur];
     }
-    let idx: u64 = arena.tags.len();
-    let lit_idx: u64 = arena.lit_val.len();
+    let idx: u64 = (arena.tags.len() as u64);
+    let lit_idx: u64 = (arena.lit_val.len() as u64);
     arena.tags.push(7);
     arena.f1.push(plit_kind);
     arena.f2.push(lit_idx);
@@ -174,11 +174,11 @@ fn find_or_push_lit(arena: ExprArena, plit_kind: u64, plit_val: String) -> u64 {
 }
 
 fn find_or_push_const(arena: ExprArena, name: u64, plevels: Vec<u64>) -> u64 {
-    let pn: u64 = plevels.len();
+    let pn: u64 = (plevels.len() as u64);
     let h: u64 = expr_hash(2, name, pn, 0, 0, 0, 0, 0);
     let mut cur: u64 = arena.bucket_head[h];
     while cur != chain_nil() {
-        if cur < arena.tags.len() {
+        if cur < (arena.tags.len() as u64) {
             if arena.tags[cur] == 2 && arena.f1[cur] == name && arena.f3[cur] == pn {
                 let s: u64 = arena.f2[cur];
                 let mut j: u64 = 0;
@@ -192,8 +192,8 @@ fn find_or_push_const(arena: ExprArena, name: u64, plevels: Vec<u64>) -> u64 {
         }
         cur = arena.hash_next[cur];
     }
-    let idx: u64 = arena.tags.len();
-    let new_start: u64 = arena.level_pool.len();
+    let idx: u64 = (arena.tags.len() as u64);
+    let new_start: u64 = (arena.level_pool.len() as u64);
     let mut k: u64 = 0;
     while k < pn {
         arena.level_pool.push(plevels[k]);
@@ -215,14 +215,14 @@ fn find_or_push_nonlit0(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64
     let h: u64 = expr_hash(tag, pf1, pf2, pf3, pf4, pbi, pnondep, 0);
     let mut cur: u64 = arena.bucket_head[h];
     while cur != chain_nil() {
-        if cur < arena.tags.len() {
+        if cur < (arena.tags.len() as u64) {
             if arena.tags[cur] == tag && arena.f1[cur] == pf1 && arena.f2[cur] == pf2 && arena.f3[cur] == pf3 && arena.f4[cur] == pf4 && expr_bi(arena, cur) == pbi {
                 return cur;
             }
         }
         cur = arena.hash_next[cur];
     }
-    let idx: u64 = arena.tags.len();
+    let idx: u64 = (arena.tags.len() as u64);
     arena.tags.push(tag);
     arena.f1.push(pf1);
     arena.f2.push(pf2);
@@ -236,7 +236,7 @@ fn find_or_push_nonlit0(arena: ExprArena, tag: u64, pf1: u64, pf2: u64, pf3: u64
 }
 
 pub fn expr_arena_import_id(arena: ExprArena, id: u64, actual: u64) {
-    while arena.tags.len() <= id {
+    while (arena.tags.len() as u64) <= id {
         arena.tags.push(arena.tags[actual]);
         arena.f1.push(arena.f1[actual]);
         arena.f2.push(arena.f2[actual]);
@@ -246,7 +246,7 @@ pub fn expr_arena_import_id(arena: ExprArena, id: u64, actual: u64) {
         if arena.tags[actual] == 2 {
             let start: u64 = arena.f2[actual];
             let n: u64 = arena.f3[actual];
-            let new_start: u64 = arena.level_pool.len();
+            let new_start: u64 = (arena.level_pool.len() as u64);
             let mut i: u64 = 0;
             while i < n {
                 arena.level_pool.push(arena.level_pool[start + i]);
@@ -255,7 +255,7 @@ pub fn expr_arena_import_id(arena: ExprArena, id: u64, actual: u64) {
             arena.f2[arena.tags.len() - 1] = new_start;
         }
         if arena.tags[actual] == 7 {
-            let lit_idx: u64 = arena.lit_val.len();
+            let lit_idx: u64 = (arena.lit_val.len() as u64);
             arena.lit_val.push(arena.lit_val[arena.f2[actual]]);
             arena.f2[arena.tags.len() - 1] = lit_idx;
         }
@@ -324,7 +324,7 @@ pub fn expr_add_nat_lit(arena: ExprArena, n: u64) -> u64 {
             digits.push(tmp % 10);
             tmp = tmp / 10;
         }
-        let mut di: u64 = digits.len();
+        let mut di: u64 = (digits.len() as u64);
         while di > 0 {
             di = di - 1;
             s.push_byte(48 + digits[di]);
@@ -352,15 +352,15 @@ pub fn expr_add_mdata(arena: ExprArena, inner: u64) -> u64 {
 pub fn expr_contains_const(arena: ExprArena, expr: u64, name_idx: u64) -> u64 {
     // Use the arena's shared scratch Vec as both worklist and restoration list.
     // Normal tags are 0..10; adding 16 marks a node visited for this scan.
-    let scratch_base: u64 = arena.scratch_args.len();
+    let scratch_base: u64 = (arena.scratch_args.len() as u64);
     arena.scratch_args.push(expr);
 
     let mut cursor: u64 = scratch_base;
     let mut found: u64 = 0;
-    while cursor < arena.scratch_args.len() && found == 0 {
+    while cursor < (arena.scratch_args.len() as u64) && found == 0 {
         let cur: u64 = arena.scratch_args[cursor];
         cursor = cursor + 1;
-        if cur < arena.tags.len() {
+        if cur < (arena.tags.len() as u64) {
             let t: u64 = arena.tags[cur];
             if t < 16 {
                 arena.tags[cur] = t + 16;
@@ -388,9 +388,9 @@ pub fn expr_contains_const(arena: ExprArena, expr: u64, name_idx: u64) -> u64 {
     // Restore every tag marked above, including early-success paths, and leave
     // any scratch entries owned by the caller intact.
     let mut restore: u64 = scratch_base;
-    while restore < arena.scratch_args.len() {
+    while restore < (arena.scratch_args.len() as u64) {
         let idx: u64 = arena.scratch_args[restore];
-        if idx < arena.tags.len() && arena.tags[idx] >= 16 {
+        if idx < (arena.tags.len() as u64) && arena.tags[idx] >= 16 {
             arena.tags[idx] = arena.tags[idx] - 16;
         }
         restore = restore + 1;
@@ -424,7 +424,7 @@ pub fn expr_lit_eq(arena: ExprArena, a: u64, b: u64) -> u64 {
     let bi: u64 = arena.f2[b];
     if arena.lit_val[ai].len() != arena.lit_val[bi].len() { return 0; }
     let mut i: u64 = 0;
-    while i < arena.lit_val[ai].len() {
+    while i < (arena.lit_val[ai].len() as u64) {
         if arena.lit_val[ai].byte_at(i) != arena.lit_val[bi].byte_at(i) { return 0; }
         i = i + 1;
     }
@@ -436,14 +436,14 @@ pub fn expr_lit_kind(arena: ExprArena, idx: u64) -> u64 {
 }
 
 pub fn expr_lit_nat_u64(arena: ExprArena, idx: u64) -> u64 {
-    if idx >= arena.tags.len() { return 4294967294; }
+    if idx >= (arena.tags.len() as u64) { return 4294967294; }
     if arena.tags[idx] != 7 || arena.f1[idx] != 0 { return 4294967294; }
     let li: u64 = arena.f2[idx];
     if arena.lit_val[li].len() > 19 { return 4294967294; }
     let mut v: u64 = 0;
     let mut i: u64 = 0;
-    while i < arena.lit_val[li].len() {
-        let d: u64 = arena.lit_val[li].byte_at(i) - 48;
+    while i < (arena.lit_val[li].len() as u64) {
+        let d: u64 = (arena.lit_val[li].byte_at(i as i64) as u64) - 48;
         let prev: u64 = v;
         v = v * 10 + d;
         if v < prev { return 4294967294; }
@@ -458,7 +458,7 @@ pub fn expr_lit_nat_ble(arena: ExprArena, a: u64, b: u64) -> u64 {
     if arena.lit_val[ai].len() < arena.lit_val[bi].len() { return 1; }
     if arena.lit_val[ai].len() > arena.lit_val[bi].len() { return 0; }
     let mut i: u64 = 0;
-    while i < arena.lit_val[ai].len() {
+    while i < (arena.lit_val[ai].len() as u64) {
         if arena.lit_val[ai].byte_at(i) < arena.lit_val[bi].byte_at(i) { return 1; }
         if arena.lit_val[ai].byte_at(i) > arena.lit_val[bi].byte_at(i) { return 0; }
         i = i + 1;
@@ -467,7 +467,7 @@ pub fn expr_lit_nat_ble(arena: ExprArena, a: u64, b: u64) -> u64 {
 }
 
 pub fn expr_lit_is_empty_str(arena: ExprArena, idx: u64) -> u64 {
-    if idx >= arena.tags.len() { return 0; }
+    if idx >= (arena.tags.len() as u64) { return 0; }
     if arena.tags[idx] != 7 || arena.f1[idx] != 1 { return 0; }
     if arena.lit_val[arena.f2[idx]].len() == 0 { return 1; }
     return 0;
@@ -487,7 +487,7 @@ pub fn expr_get_levels(arena: ExprArena, idx: u64) -> Vec<u64> {
 
 pub fn expr_arena_clear_caches(arena: ExprArena) {
     let mut i: u64 = 0;
-    while i < arena.cache.len() {
+    while i < (arena.cache.len() as u64) {
         arena.cache[i] = cache_empty_value();
         i = i + 1;
     }
@@ -499,9 +499,9 @@ pub fn expr_arena_clear_caches(arena: ExprArena) {
 // truncated) are skipped.
 pub fn expr_arena_clear_dirty_caches(arena: ExprArena) {
     let mut i: u64 = 0;
-    while i < arena.cache_dirty.len() {
+    while i < (arena.cache_dirty.len() as u64) {
         let idx: u64 = arena.cache_dirty[i];
-        if idx < arena.cache.len() {
+        if idx < (arena.cache.len() as u64) {
             arena.cache[idx] = cache_empty_value();
         }
         i = i + 1;
@@ -510,9 +510,9 @@ pub fn expr_arena_clear_dirty_caches(arena: ExprArena) {
 }
 
 pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
-    let mut pool_cut: u64 = arena.level_pool.len();
-    let mut lit_cut: u64 = arena.lit_val.len();
-    let mut lit_scan: u64 = arena.tags.len();
+    let mut pool_cut: u64 = (arena.level_pool.len() as u64);
+    let mut lit_cut: u64 = (arena.lit_val.len() as u64);
+    let mut lit_scan: u64 = (arena.tags.len() as u64);
     while lit_scan > size {
         lit_scan = lit_scan - 1;
         if arena.tags[lit_scan] == 2 { pool_cut = pool_cut - arena.f3[lit_scan]; }
@@ -524,7 +524,7 @@ pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
     // Chains are in strictly decreasing index order (insert prepends), so once
     // we cross the watermark we never need to skip again in the same chain.
     let mut h: u64 = 0;
-    while h < arena.bucket_head.len() {
+    while h < (arena.bucket_head.len() as u64) {
         let mut cur: u64 = arena.bucket_head[h];
         while cur != chain_nil() {
             if cur < size { break; }
