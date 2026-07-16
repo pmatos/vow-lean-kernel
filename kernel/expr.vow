@@ -406,6 +406,18 @@ pub fn expr_add_local(arena: ExprArena, id: u64, ty: u64) -> u64 {
     return find_or_push_nonlit0(arena, 10, id, ty, 0, 0, 0, 0, 0);
 }
 
+// Local carrying the infer_ctx depth (`ctx_depth`) at which it was created,
+// stored in f3. def_eq's binder-opening bakes a domain type that may still
+// hold loose bvars referencing the enclosing infer bvar-context; those bvars
+// are only valid at the depth where the local was created. When infer later
+// meets the local under additional binders it lifts the baked type by the
+// depth delta (see infer's tag-10 case). Kept out of the hash key's semantic
+// meaning only via f3, so two locals with the same (id, ty) but different
+// creation depth stay distinct nodes.
+pub fn expr_add_local_d(arena: ExprArena, id: u64, ty: u64, ctx_depth: u64) -> u64 {
+    return find_or_push_nonlit0(arena, 10, id, ty, ctx_depth, 0, 0, 0, 0);
+}
+
 pub fn expr_level_count(arena: ExprArena, idx: u64) -> u64 {
     if arena.tags[idx] != 2 { return 0; }
     return arena.f3[idx];
