@@ -17,11 +17,13 @@ concurrency:
 
 env:
   # vow-lang/vow commit used to build the self-hosted `vowc` that compiles this
-  # kernel. Pinned to the known-good compiler (the base-2^32 bignum merge, #839)
-  # that the kernel is developed against. The kernel builds only with the
-  # self-hosted `vowc`, not the Rust `vow`/`vowr` bootstrap. Bump this when the
-  # kernel needs newer compiler features; `main` also works but is not pinned.
-  VOW_REF: 15c1b933f87eed2b23c176665730baea37706daa
+  # kernel. Pinned to the compiler the kernel is developed against: this rev
+  # carries the strict integer typing (vow #868, "separate integer literal
+  # marker from i32") that the kernel was migrated to, plus the region
+  # containment fix (#875) — the kernel no longer builds with the older lenient
+  # compiler. The kernel builds only with the self-hosted `vowc`, not the Rust
+  # `vow`/`vowr` bootstrap. Bump when the kernel needs newer compiler features.
+  VOW_REF: c4932b71b8dd7e7d62de9d9d5748d09180e26480
 
 jobs:
   build-and-test:
