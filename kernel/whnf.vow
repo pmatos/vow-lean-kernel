@@ -618,6 +618,54 @@ fn nat_succ_minor_ignores_ih(env: Environment, rec_idx: u64, arg_base: u64, num_
     return 1;
 }
 
+// Contextual WHNF cache (B1). Key (expr, innermost infer_ctx token, do_delta),
+// same single-slot-evict discipline as infer.vow's infer_ctx cache. Only consulted
+// when infer_ctx_types.len() > 0 (the plain per-expr cache is disabled under any
+// binder context, which forced ~200x re-reduction of the same terms and the
+// resulting OOM on cedar / heavy Init decls). Sound: whnf(expr, do_delta) under a
+// binder context depends only on `expr`, the infer bvar context, and do_delta —
+// the monotonic, never-reused token uniquely identifies that context instance, and
+// def_eq opens binders via hash-consed expr_add_local FVARs that whnf treats as
+// opaque atoms of `expr`, not hidden context state. do_delta is part of the key
+// because whnf_abbrev (do_delta 1) leaves non-height-0 defs folded while whnf
+// (do_delta 2) unfolds them (see the unfold decision below): the two modes yield
+// different results for the same (expr, token), so they must not share a slot —
+// otherwise a delta-1 partial result could be handed to a delta-2 caller,
+// under-reducing and risking a false reject in ensure_sort / ensure_forall.
+fn whnf_ctx_cache_hash(env: Environment, expr: u64, token: u64, delta: u64) -> u64 {
+    return (expr * 40503 + token * 65537 + delta * 2654435761) % (env.whnf_ctx_cache_result.len() as u64);
+}
+
+fn whnf_ctx_cache_lookup(env: Environment, expr: u64, delta: u64) -> u64 {
+    let token: u64 = env.infer_ctx_tokens[(env.infer_ctx_tokens.len() as u64) - 1];
+    let h: u64 = whnf_ctx_cache_hash(env, expr, token, delta);
+    if env.whnf_ctx_cache_token[h] == token && env.whnf_ctx_cache_expr[h] == expr && env.whnf_ctx_cache_delta[h] == delta {
+        return env.whnf_ctx_cache_result[h];
+    }
+    return 4294967294;
+}
+
+fn whnf_ctx_cache_store(env: Environment, expr: u64, delta: u64, result: u64) {
+    // A scoped lazy-congruence probe (def_eq.vow) can abort recursive
+    // infer/is_def_eq work once its arena cap is crossed, returning a
+    // conservative "not equal" (0) and leaving whnf's `reduced == 0` — so `cur`
+    // here may be a term left stuck under the cap, not a true WHNF. Do not
+    // memoize while a probe is active (lazy_arena_cap > 0): the eager fallback
+    // that runs after the cap is restored re-enters whnf under the same
+    // infer_ctx token, and reading the incomplete result would defeat the
+    // fallback and could falsely reject a valid declaration. Mirrors the
+    // no-cache-on-abort discipline of the top-of-loop cap check in whnf_core.
+    if env.lazy_arena_cap > 0 {
+        return;
+    }
+    let token: u64 = env.infer_ctx_tokens[(env.infer_ctx_tokens.len() as u64) - 1];
+    let h: u64 = whnf_ctx_cache_hash(env, expr, token, delta);
+    env.whnf_ctx_cache_expr[h] = expr;
+    env.whnf_ctx_cache_token[h] = token;
+    env.whnf_ctx_cache_delta[h] = delta;
+    env.whnf_ctx_cache_result[h] = result;
+}
+
 pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= (env.exprs.tags.len() as u64) {
         return expr;
@@ -626,6 +674,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         let wc: u64 = expr_whnf_cache_get(env.exprs, expr);
         if wc != 4294967294 {
             return wc;
+        }
+    } else if do_delta > 0 && env.infer_ctx_types.len() > 0 {
+        let wcc: u64 = whnf_ctx_cache_lookup(env, expr, do_delta);
+        if wcc != 4294967294 {
+            return wcc;
         }
     }
     let orig_expr: u64 = expr;
@@ -655,6 +708,8 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         if cur >= (env.exprs.tags.len() as u64) {
             if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < (env.exprs.cache.len() as u64) {
                 expr_whnf_cache_set(env.exprs, orig_expr, cur);
+            } else if do_delta > 0 && env.infer_ctx_types.len() > 0 {
+                whnf_ctx_cache_store(env, orig_expr, do_delta, cur);
             }
             return cur;
         }
@@ -1444,12 +1499,16 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
         if reduced == 0 {
             if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < (env.exprs.cache.len() as u64) {
                 expr_whnf_cache_set(env.exprs, orig_expr, cur);
+            } else if do_delta > 0 && env.infer_ctx_types.len() > 0 {
+                whnf_ctx_cache_store(env, orig_expr, do_delta, cur);
             }
             return cur;
         }
     }
     if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < (env.exprs.cache.len() as u64) {
         expr_whnf_cache_set(env.exprs, orig_expr, cur);
+    } else if do_delta > 0 && env.infer_ctx_types.len() > 0 {
+        whnf_ctx_cache_store(env, orig_expr, do_delta, cur);
     }
     return cur;
 }
