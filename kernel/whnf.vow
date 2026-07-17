@@ -646,6 +646,18 @@ fn whnf_ctx_cache_lookup(env: Environment, expr: u64, delta: u64) -> u64 {
 }
 
 fn whnf_ctx_cache_store(env: Environment, expr: u64, delta: u64, result: u64) {
+    // A scoped lazy-congruence probe (def_eq.vow) can abort recursive
+    // infer/is_def_eq work once its arena cap is crossed, returning a
+    // conservative "not equal" (0) and leaving whnf's `reduced == 0` — so `cur`
+    // here may be a term left stuck under the cap, not a true WHNF. Do not
+    // memoize while a probe is active (lazy_arena_cap > 0): the eager fallback
+    // that runs after the cap is restored re-enters whnf under the same
+    // infer_ctx token, and reading the incomplete result would defeat the
+    // fallback and could falsely reject a valid declaration. Mirrors the
+    // no-cache-on-abort discipline of the top-of-loop cap check in whnf_core.
+    if env.lazy_arena_cap > 0 {
+        return;
+    }
     let token: u64 = env.infer_ctx_tokens[(env.infer_ctx_tokens.len() as u64) - 1];
     let h: u64 = whnf_ctx_cache_hash(env, expr, token, delta);
     env.whnf_ctx_cache_expr[h] = expr;
