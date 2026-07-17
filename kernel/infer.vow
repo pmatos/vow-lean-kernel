@@ -316,7 +316,24 @@ fn infer_uncached(env: Environment, expr: u64) -> u64 {
     let t: u64 = env.exprs.tags[expr];
 
     if t == 10 {
-        return env.exprs.f2[expr];
+        let lty: u64 = env.exprs.f2[expr];
+        // def_eq opens binders with FVAR locals (id >= defeq_local_base) whose
+        // baked type may still hold loose bvars pointing at the enclosing infer
+        // bvar-context. Those refs are only valid at the infer_ctx depth where
+        // the local was created (stored in f3). When infer later meets the local
+        // under additional binders it has descended (dn > dc), lift the baked
+        // type by the depth delta so its loose bvars keep referencing the same
+        // context entries. Without this, infer(proof-term) errs mid-def_eq and
+        // proof irrelevance is silently skipped, false-rejecting valid decls
+        // (e.g. Acc.recC._unary). Non-def_eq locals and dn <= dc are unchanged.
+        if env.exprs.f1[expr] >= defeq_local_base() {
+            let dc: u64 = env.exprs.f3[expr];
+            let dn: u64 = (env.infer_ctx_types.len() as u64);
+            if dn > dc {
+                return lift(env, lty, 0, dn - dc);
+            }
+        }
+        return lty;
     }
     if t == 0 {
         let idx: u64 = env.exprs.f1[expr];
