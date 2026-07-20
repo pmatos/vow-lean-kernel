@@ -918,10 +918,109 @@ fn is_def_eq_one(env: Environment, e1: u64, e2: u64) -> u64 {
     return 0;
 }
 
+fn alpha_eq_budget() -> u64 {
+    return 20000;
+}
+
+// Structural equality that IGNORES lam/pi/let binder NAMES (and binder info).
+// Two terms that are alpha-equivalent are definitionally equal, but because the
+// arena hash-conses on binder names they land on distinct nodes, so is_def_eq's
+// e1==e2 pointer check misses them and it must whnf-reduce to decide — which on
+// a heavy subterm (e.g. cedar's USize.toNat(mkIdx(hash …))) can burn the whole
+// kernel_fuel cap and spuriously fail (cedar decl 6015). This fast-path settles
+// such pairs directly.
+//
+// SOUND: only ever returns 1 when the terms are genuinely alpha-equivalent
+// (⟹ def-eq); on ANY mismatch, unhandled tag, or exhausted budget it returns 0
+// and the caller runs the normal path. It is at least as strict as the normal
+// per-tag comparison (const: same name + is_levels_eq_at; local: same id + type
+// alpha-eq; proj: same name+index + inner alpha-eq), so it can never accept a
+// pair the normal path would reject. bvars/fvars compare by index/id; both sides
+// descend a binder in tandem so de Bruijn indices stay aligned.
+//
+// The env.alpha_budget node counter (set by the caller) bounds total work: a
+// deep near-match term stops at the budget and falls through rather than
+// spending O(size^2). Shared (hash-consed) subterms short-circuit via a==b.
+fn alpha_eq(env: Environment, a: u64, b: u64) -> u64 {
+    if a == b { return 1; }
+    if env.alpha_budget == 0 { return 0; }
+    env.alpha_budget = env.alpha_budget - 1;
+    let n: u64 = (env.exprs.tags.len() as u64);
+    if a >= n { return 0; }
+    if b >= n { return 0; }
+    let t1: u64 = env.exprs.tags[a];
+    if t1 != env.exprs.tags[b] { return 0; }
+    if t1 == 0 {
+        // bvar: same de Bruijn index
+        if env.exprs.f1[a] == env.exprs.f1[b] { return 1; }
+        return 0;
+    }
+    if t1 == 10 {
+        // fvar/local: same id AND alpha-eq baked type (mirrors is_def_eq_core's
+        // id+type check; id alone no longer implies the same typed variable).
+        if env.exprs.f1[a] == env.exprs.f1[b] {
+            return alpha_eq(env, env.exprs.f2[a], env.exprs.f2[b]);
+        }
+        return 0;
+    }
+    if t1 == 1 {
+        // sort: compare levels
+        return is_level_eq(env, env.exprs.f1[a], env.exprs.f1[b]);
+    }
+    if t1 == 2 {
+        // const: same name AND same level list
+        if env.exprs.f1[a] != env.exprs.f1[b] { return 0; }
+        return is_levels_eq_at(env, a, b);
+    }
+    if t1 == 7 {
+        // lit: same kind AND same payload
+        if env.exprs.f1[a] != env.exprs.f1[b] { return 0; }
+        return expr_lit_eq(env.exprs, a, b);
+    }
+    if t1 == 3 {
+        // app: recurse func + arg
+        if alpha_eq(env, env.exprs.f1[a], env.exprs.f1[b]) == 0 { return 0; }
+        return alpha_eq(env, env.exprs.f2[a], env.exprs.f2[b]);
+    }
+    if t1 == 4 || t1 == 5 {
+        // lam/pi: compare binder type (f2) and body (f3); SKIP the name (f1) and
+        // binder info — neither affects def-eq. Bodies compare directly: both
+        // sides just entered the same binder, so bvar #0 aligns.
+        if alpha_eq(env, env.exprs.f2[a], env.exprs.f2[b]) == 0 { return 0; }
+        return alpha_eq(env, env.exprs.f3[a], env.exprs.f3[b]);
+    }
+    if t1 == 8 {
+        // proj: same struct name (f1) and field index (f2), alpha-eq inner (f3).
+        // Stricter than is_def_eq_core (no proj_name_canon cross-type map), so it
+        // only ever falls through — never over-accepts.
+        if env.exprs.f1[a] != env.exprs.f1[b] { return 0; }
+        if env.exprs.f2[a] != env.exprs.f2[b] { return 0; }
+        return alpha_eq(env, env.exprs.f3[a], env.exprs.f3[b]);
+    }
+    if t1 == 6 {
+        // let: SKIP name (f1); compare type (f2), value (f3), body (f4)
+        if alpha_eq(env, env.exprs.f2[a], env.exprs.f2[b]) == 0 { return 0; }
+        if alpha_eq(env, env.exprs.f3[a], env.exprs.f3[b]) == 0 { return 0; }
+        return alpha_eq(env, env.exprs.f4[a], env.exprs.f4[b]);
+    }
+    if t1 == 9 {
+        // mdata: transparent wrapper, recurse on inner (f1)
+        return alpha_eq(env, env.exprs.f1[a], env.exprs.f1[b]);
+    }
+    return 0;
+}
+
 pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
     if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
     if def_eq_cache_lookup(env, e1, e2) > 0 { return 1; }
+    // Alpha-equivalence fast-path: settle binder-name-only differences without
+    // whnf-reducing (see alpha_eq). Sound; 0 falls through to the normal path.
+    env.alpha_budget = alpha_eq_budget();
+    if alpha_eq(env, e1, e2) > 0 {
+        def_eq_cache_store(env, e1, e2);
+        return 1;
+    }
     // At deep recursion, fall back to full-WHNF (avoids stack explosion)
     env.def_eq_depth = env.def_eq_depth + 1;
     if env.def_eq_depth > 256 {
