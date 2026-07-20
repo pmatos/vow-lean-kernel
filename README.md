@@ -100,7 +100,9 @@ The design and phased roadmap (L1 NDJSON parsing through L9 large-scale Mathlib 
 
 ## Lean Kernel Arena
 
-The arena submission lives in [`arena/`](arena/) — a `checker.yaml` that self-hosts `vowc`, builds the kernel, and runs it under a memory cap, plus dry-run tooling. See [`arena/README.md`](arena/README.md) for details.
+This checker is registered in the [Lean Kernel Arena](https://arena.lean-lang.org), merged as `checkers/vow-lean-kernel.yaml` in [leanprover/lean-kernel-arena#68](https://github.com/leanprover/lean-kernel-arena/pull/68).
+
+The submission lives in [`arena/`](arena/) — a `checker.yaml` that self-hosts `vowc`, builds the kernel, and runs it under a memory cap, plus dry-run tooling. See [`arena/README.md`](arena/README.md) for details.
 
 - Arena site: https://arena.lean-lang.org
 - Arena repo: https://github.com/leanprover/lean-kernel-arena
