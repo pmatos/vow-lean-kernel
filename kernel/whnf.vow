@@ -124,6 +124,18 @@ fn nat_shr(a: u64, b: u64) -> u64 {
     return result;
 }
 
+// Euclidean gcd. Matches Lean's Nat.gcd: gcd 0 y = y; gcd x y = gcd (y % x) x.
+fn nat_gcd(a: u64, b: u64) -> u64 {
+    let mut x: u64 = a;
+    let mut y: u64 = b;
+    while x != 0 {
+        let r: u64 = y % x;
+        y = x;
+        x = r;
+    }
+    return y;
+}
+
 fn rebuild_apps(env: Environment, head: u64, args: Vec<u64>) -> u64 {
     let mut result: u64 = head;
     let mut i: u64 = (args.len() as u64);
@@ -1024,6 +1036,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                 if name_idx == env.name_nat_shift_left { is_nat_op = 11; }
                 if name_idx == env.name_nat_shift_right { is_nat_op = 12; }
                 if name_idx == env.name_nat_pow { is_nat_op = 13; }
+                if name_idx == env.name_nat_gcd { is_nat_op = 14; }
                 if is_nat_op > 0 {
                     let va0: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 1]);
                     let va1: u64 = nat_value(env, env.exprs.scratch_args[arg_base + num_args - 2]);
@@ -1079,6 +1092,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             }
                             reduced = 1;
                         }
+                        if is_nat_op == 14 { cur = rebuild_apps_skip_range(env, expr_add_nat_lit(env.exprs, nat_gcd(va0, va1)), env.exprs.scratch_args, arg_base, arg_base + num_args, 2); reduced = 1; }
                     }
                     if reduced == 0 && (is_nat_op == 6 || is_nat_op == 7) {
                         let w0: u64 = whnf(env, env.exprs.scratch_args[arg_base + num_args - 1]);
