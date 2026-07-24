@@ -23,6 +23,15 @@ pub struct ExprArena {
     // of init.ndjson. Stack discipline (record base on entry, truncate back on
     // exit) lets nested callers share the same Vec without conflict.
     scratch_args: Vec<u64>,
+    // Direct-mapped cache of expr indices for small Nat literals (0..4095).
+    // expr_add_nat_lit used to build a fresh digit String on every call, even
+    // when the literal already existed (find_or_push_lit then discards the
+    // redundant String) — Vow's region inference routes that String to root
+    // (RegionRootEscape at the String::new() site), so it never gets freed.
+    // Small literals (sizeOf/index/bit-width counts) recur constantly during
+    // reduction, so this was a per-reduction-step leak. Caching the small
+    // range sidesteps the allocation entirely on a repeat.
+    small_nat_lit_cache: Vec<u64>,
 }
 
 fn chain_nil() -> u64 {
@@ -35,6 +44,12 @@ pub fn expr_arena_new() -> ExprArena {
     while bi < 65536 {
         heads.push(chain_nil());
         bi = bi + 1;
+    }
+    let small_lits: Vec<u64> = Vec::new();
+    let mut si: u64 = 0;
+    while si < small_nat_lit_cache_size() {
+        small_lits.push(chain_nil());
+        si = si + 1;
     }
     return ExprArena {
         tags: Vec::new(),
@@ -50,7 +65,12 @@ pub fn expr_arena_new() -> ExprArena {
         hash_next: Vec::new(),
         cache_dirty: Vec::new(),
         scratch_args: Vec::new(),
+        small_nat_lit_cache: small_lits,
     };
+}
+
+fn small_nat_lit_cache_size() -> u64 {
+    return 4096;
 }
 
 fn expr_hash(tag: u64, pf1: u64, pf2: u64, pf3: u64, pf4: u64, pbi: u64, pnondep: u64, plit_kind: u64) -> u64 {
@@ -314,6 +334,13 @@ pub fn expr_add_let(arena: ExprArena, name: u64, ty: u64, val: u64, body: u64, n
 }
 
 pub fn expr_add_nat_lit(arena: ExprArena, n: u64) -> u64 {
+    let is_small: bool = n < small_nat_lit_cache_size();
+    if is_small {
+        let cached: u64 = arena.small_nat_lit_cache[n];
+        if cached != chain_nil() {
+            return cached;
+        }
+    }
     let s: String = String::new();
     if n == 0 {
         s.push_byte(48);
@@ -330,7 +357,11 @@ pub fn expr_add_nat_lit(arena: ExprArena, n: u64) -> u64 {
             s.push_byte(48 + digits[di]);
         }
     }
-    return expr_add_lit_nat(arena, s);
+    let idx: u64 = expr_add_lit_nat(arena, s);
+    if is_small {
+        arena.small_nat_lit_cache[n] = idx;
+    }
+    return idx;
 }
 
 pub fn expr_add_lit_nat(arena: ExprArena, val: String) -> u64 {
@@ -557,4 +588,14 @@ pub fn expr_arena_truncate(arena: ExprArena, size: u64) {
     arena.lit_val.truncate(lit_cut);
     arena.cache.truncate(size);
     arena.hash_next.truncate(size);
+    // Entries created during this decl's reduction (index >= size) are now
+    // stale — their expr indices may be reused by the next decl. A full reset
+    // is cheap (4096 iterations) relative to a decl's reduction work; it also
+    // discards entries below size that were still valid, trading a small
+    // cross-decl cache-warmth loss for not having to track provenance per slot.
+    let mut sci: u64 = 0;
+    while sci < (arena.small_nat_lit_cache.len() as u64) {
+        arena.small_nat_lit_cache[sci] = chain_nil();
+        sci = sci + 1;
+    }
 }
