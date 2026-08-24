@@ -71,13 +71,20 @@ run: |
   # Genuine rejects (exit 1, no OOM marker), real declines (exit 2) and real
   # crashes are left untouched.
   #
-  # Cap = 12 GiB: the dry-run showed the `Init` accept run peaks at ~7.6 GB, so
-  # 8 GB left almost no headroom; 12 GB is comfortable yet stays below a normal
-  # arena host's RAM, so a genuine OOM still surfaces as Vow's graceful
-  # allocation failure (which we can detect) rather than an OS OOM-kill
-  # (SIGKILL, uncatchable).
+  # Cap = 32 GiB: RSS profiling (2026-07-30) found the checker's memory is a
+  # ratchet (a general-purpose allocator retaining its high-water-mark, not a
+  # leak — the expr arena itself is correctly reclaimed each declaration), so
+  # peak memory is set by the single most expensive declaration's transient
+  # working set rather than accumulating across a run. The costliest known
+  # declaration observed so far (a Char.Ordinal round-trip proof, ~1.8M new
+  # expr nodes / 8.2M def_eq congruence checks) alone pushes RSS from ~5.5 GB
+  # to ~11 GB. 12 GB left too little headroom for that plus other expensive
+  # declarations in the same run; 32 GB gives comfortable margin while still
+  # staying well below a normal arena host's RAM, so a genuine OOM still
+  # surfaces as Vow's graceful allocation failure (which we can detect) rather
+  # than an OS OOM-kill (SIGKILL, uncatchable).
   err="$(mktemp)"
-  ( ulimit -v 12582912 && ./lean_checker "$IN" ) 2>"$err"
+  ( ulimit -v 33554432 && ./lean_checker "$IN" ) 2>"$err"
   rc=$?
   cat "$err" >&2
   if [ "$rc" -ne 0 ] && grep -q '"error":"OutOfMemory"' "$err"; then rc=3; fi
