@@ -300,6 +300,8 @@ fn main() -> i32 [io, read] {
                 print_u64(env.cnt_deq_ctx_hit);
                 print_str(String::from(" mm="));
                 print_u64(env.cnt_deq_ctx_mismatch);
+                print_str(String::from(" incon="));
+                print_u64(env.cnt_deq_ctx_inconclusive);
             }
             print_str(String::from("\n"));
         }
@@ -445,6 +447,8 @@ fn main() -> i32 [io, read] {
         print_u64(env.cnt_deq_ctx_hit);
         print_str(String::from(" mismatches="));
         print_u64(env.cnt_deq_ctx_mismatch);
+        print_str(String::from(" inconclusive="));
+        print_u64(env.cnt_deq_ctx_inconclusive);
         print_str(String::from("\n"));
         // A mismatch means a cached positive disagreed with a cache-free
         // recomputation: report an internal error rather than let a run that

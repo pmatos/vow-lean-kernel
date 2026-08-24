@@ -846,7 +846,7 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
     // Scoped-probe arena ceiling (issue #41): an over-expanded probe gives up
     // here (conservative "not equal") so the App-branch caller uses eager.
-    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
+    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { env.def_eq_gaveup = 1; return 0; }
     let w1: u64 = whnf(env, e1);
     let w2: u64 = whnf(env, e2);
     if w1 == w2 { return 1; }
@@ -865,21 +865,32 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
         // Any resulting verdict CHANGE (a decline becoming an accept) must be
         // verify-mode confirmed, never assumed to be a free win.
         env.kernel_fuel = env.kernel_fuel + 1;
-        if env.kernel_fuel > 5000000 { return 0; }
+        if env.kernel_fuel > 5000000 { env.def_eq_gaveup = 1; return 0; }
         if env.def_eq_ctx_verify == 0 { return 1; }
         env.cnt_deq_ctx_hit = env.cnt_deq_ctx_hit + 1;
+        let saved_gaveup: u64 = env.def_eq_gaveup;
+        env.def_eq_gaveup = 0;
         env.def_eq_ctx_bypass = env.def_eq_ctx_bypass + 1;
         let truth: u64 = is_def_eq_full(env, w1, w2);
         env.def_eq_ctx_bypass = env.def_eq_ctx_bypass - 1;
-        if truth == 0 { env.cnt_deq_ctx_mismatch = env.cnt_deq_ctx_mismatch + 1; }
+        let gave: u64 = env.def_eq_gaveup;
+        env.def_eq_gaveup = saved_gaveup;
+        if truth == 0 {
+            if gave > 0 {
+                env.cnt_deq_ctx_inconclusive = env.cnt_deq_ctx_inconclusive + 1;
+                return 1;
+            }
+            env.cnt_deq_ctx_mismatch = env.cnt_deq_ctx_mismatch + 1;
+        }
         return truth;
     }
     env.kernel_fuel = env.kernel_fuel + 1;
-    if env.kernel_fuel > 5000000 { return 0; }
+    if env.kernel_fuel > 5000000 { env.def_eq_gaveup = 1; return 0; }
     env.cnt_is_def_eq_full = env.cnt_is_def_eq_full + 1;
     env.def_eq_depth = env.def_eq_depth + 1;
     if env.def_eq_depth > 5000 {
         env.def_eq_depth = env.def_eq_depth - 1;
+        env.def_eq_gaveup = 1;
         return 0;
     }
     let result: u64 = is_def_eq_core(env, w1, w2);
@@ -896,7 +907,7 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
 // no shared stack and stays re-entrant-safe.
 fn is_def_eq_one(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
-    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
+    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { env.def_eq_gaveup = 1; return 0; }
     env.cnt_is_def_eq_one = env.cnt_is_def_eq_one + 1;
     // Iterative lazy delta loop for this pair
     let mut cur1: u64 = e1;
@@ -1085,15 +1096,25 @@ fn alpha_eq(env: Environment, a: u64, b: u64) -> u64 {
 
 pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
-    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
+    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { env.def_eq_gaveup = 1; return 0; }
     if def_eq_cache_lookup(env, e1, e2) > 0 { return 1; }
     if def_eq_ctx_cache_lookup(env, e1, e2) > 0 {
         if env.def_eq_ctx_verify == 0 { return 1; }
         env.cnt_deq_ctx_hit = env.cnt_deq_ctx_hit + 1;
+        let saved_gaveup: u64 = env.def_eq_gaveup;
+        env.def_eq_gaveup = 0;
         env.def_eq_ctx_bypass = env.def_eq_ctx_bypass + 1;
         let truth: u64 = is_def_eq(env, e1, e2);
         env.def_eq_ctx_bypass = env.def_eq_ctx_bypass - 1;
-        if truth == 0 { env.cnt_deq_ctx_mismatch = env.cnt_deq_ctx_mismatch + 1; }
+        let gave: u64 = env.def_eq_gaveup;
+        env.def_eq_gaveup = saved_gaveup;
+        if truth == 0 {
+            if gave > 0 {
+                env.cnt_deq_ctx_inconclusive = env.cnt_deq_ctx_inconclusive + 1;
+                return 1;
+            }
+            env.cnt_deq_ctx_mismatch = env.cnt_deq_ctx_mismatch + 1;
+        }
         return truth;
     }
     // Alpha-equivalence fast-path: settle binder-name-only differences without
