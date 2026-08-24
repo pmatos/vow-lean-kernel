@@ -266,6 +266,25 @@ fn main() -> i32 [io, read] {
         env.alloc_hard_cap = expr_watermark + alloc_budget;
     }
 
+    // Contextual def_eq cache verify mode (issue #62). Optional positional
+    // arg args[4], off by default so production runs are unaffected. When on,
+    // every contextual-cache hit is recomputed with the cache bypassed and any
+    // disagreement is counted; a nonzero count means the cache is UNSOUND and
+    // must not ship. Because a false hit here is a false ACCEPT, this must be
+    // exercised over the reject fixtures (tests/bad/*), not just accept-side
+    // inputs -- an accept-only pass cannot surface a false-accept bug.
+    // 1 = verify mode (recompute every hit cache-free and count disagreements).
+    // 2 = cache OFF (bypass held on for the whole run), so an A/B against the
+    //     default can be measured from a single binary.
+    if (args.len() as u64) > 4u64 {
+        let dbg: u64 = parse_u64_lit(args[4u64], 0u64).val;
+        if dbg == 2 {
+            env.def_eq_ctx_bypass = 1;
+        } else {
+            env.def_eq_ctx_verify = dbg;
+        }
+    }
+
     let mut declined: u64 = 0;
     let mut di: u64 = 0;
     while di < (env.decl_kinds.len() as u64) {
@@ -276,6 +295,12 @@ fn main() -> i32 [io, read] {
             print_u64(env.decl_kinds.len() as u64);
             print_str(String::from(" arena="));
             print_u64(env.exprs.tags.len() as u64);
+            if env.def_eq_ctx_verify > 0 {
+                print_str(String::from(" deqctx_hits="));
+                print_u64(env.cnt_deq_ctx_hit);
+                print_str(String::from(" mm="));
+                print_u64(env.cnt_deq_ctx_mismatch);
+            }
             print_str(String::from("\n"));
         }
         if di < skip_until {
@@ -415,6 +440,19 @@ fn main() -> i32 [io, read] {
         }
     }
 
+    if env.def_eq_ctx_verify > 0 {
+        print_str(String::from("DEQCTX verify hits="));
+        print_u64(env.cnt_deq_ctx_hit);
+        print_str(String::from(" mismatches="));
+        print_u64(env.cnt_deq_ctx_mismatch);
+        print_str(String::from("\n"));
+        // A mismatch means a cached positive disagreed with a cache-free
+        // recomputation: report an internal error rather than let a run that
+        // observed unsoundness report a normal verdict.
+        if env.cnt_deq_ctx_mismatch > 0 {
+            return 3i32;
+        }
+    }
     if declined > 0 {
         return 2i32;
     }

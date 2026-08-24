@@ -783,6 +783,55 @@ fn def_eq_cache_store(env: Environment, e1: u64, e2: u64) {
     env.def_eq_cache_v[h] = 1;
 }
 
+// Contextual def_eq POSITIVE cache (issue #62). See the field comments in
+// env.vow for the soundness argument. Consulted ONLY under a binder context,
+// where the plain def_eq cache above bails out; the two paths are disjoint, so
+// the already-proven top-level cache is left exactly as it was.
+fn def_eq_ctx_cache_hash(env: Environment, a: u64, b: u64, token: u64) -> u64 {
+    return (a * 40503 + b * 65537 + token * 2654435761) % (env.def_eq_ctx_cache_token.len() as u64);
+}
+
+fn def_eq_ctx_cache_lookup(env: Environment, e1: u64, e2: u64) -> u64 {
+    if env.infer_ctx_types.len() == 0 { return 0; }
+    // Verify mode recomputes with the cache bypassed; a nested hit would defeat
+    // the very check being performed.
+    if env.def_eq_ctx_bypass > 0 { return 0; }
+    let mut a: u64 = e1;
+    let mut b: u64 = e2;
+    if b < a {
+        let tmp: u64 = a;
+        a = b;
+        b = tmp;
+    }
+    let token: u64 = env.infer_ctx_tokens[(env.infer_ctx_tokens.len() as u64) - 1];
+    let h: u64 = def_eq_ctx_cache_hash(env, a, b, token);
+    if env.def_eq_ctx_cache_token[h] == token && env.def_eq_ctx_cache_l[h] == a && env.def_eq_ctx_cache_r[h] == b {
+        return 1;
+    }
+    return 0;
+}
+
+fn def_eq_ctx_cache_store(env: Environment, e1: u64, e2: u64) {
+    if env.infer_ctx_types.len() == 0 { return; }
+    // A scoped lazy-congruence probe (issue #41) can abort recursive work once
+    // its arena cap is crossed. Mirrors whnf_ctx_cache_store: do not memoize
+    // anything decided while a probe is active, so the eager fallback that runs
+    // after the cap is restored is not short-circuited by a partial result.
+    if env.lazy_arena_cap > 0 { return; }
+    let mut a: u64 = e1;
+    let mut b: u64 = e2;
+    if b < a {
+        let tmp: u64 = a;
+        a = b;
+        b = tmp;
+    }
+    let token: u64 = env.infer_ctx_tokens[(env.infer_ctx_tokens.len() as u64) - 1];
+    let h: u64 = def_eq_ctx_cache_hash(env, a, b, token);
+    env.def_eq_ctx_cache_l[h] = a;
+    env.def_eq_ctx_cache_r[h] = b;
+    env.def_eq_ctx_cache_token[h] = token;
+}
+
 // Base of the reserved id range for def_eq's De Bruijn-LEVEL locals (issue #31).
 // def_eq opens binders with id = defeq_local_base() + def_eq_binder_depth, kept
 // disjoint from the monotonic next_local_id used by infer/inductive/main. 2^56
@@ -802,6 +851,29 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     let w2: u64 = whnf(env, e2);
     if w1 == w2 { return 1; }
     if def_eq_cache_lookup(env, w1, w2) > 0 { return 1; }
+    if def_eq_ctx_cache_lookup(env, w1, w2) > 0 {
+        // Charge fuel on a hit as a miss would. kernel_fuel is this
+        // declaration's termination bound, not merely a cost counter: serving
+        // hits for free removes that bound entirely, and decl 19530 then runs
+        // far past where it used to stop (measured: no DIAG in 50 min, versus
+        // declining at fuel=5000212 with the cache off).
+        // NOTE this narrows the gap rather than closing it: a hit prunes a
+        // whole subtree of is_def_eq_full calls that would each have charged
+        // 1 fuel, and charging 1 here does not restore those N. Fuel therefore
+        // still accumulates more slowly per unit of logical work than in an
+        // uncached run, so a cached run can still reach further before the cap.
+        // Any resulting verdict CHANGE (a decline becoming an accept) must be
+        // verify-mode confirmed, never assumed to be a free win.
+        env.kernel_fuel = env.kernel_fuel + 1;
+        if env.kernel_fuel > 5000000 { return 0; }
+        if env.def_eq_ctx_verify == 0 { return 1; }
+        env.cnt_deq_ctx_hit = env.cnt_deq_ctx_hit + 1;
+        env.def_eq_ctx_bypass = env.def_eq_ctx_bypass + 1;
+        let truth: u64 = is_def_eq_full(env, w1, w2);
+        env.def_eq_ctx_bypass = env.def_eq_ctx_bypass - 1;
+        if truth == 0 { env.cnt_deq_ctx_mismatch = env.cnt_deq_ctx_mismatch + 1; }
+        return truth;
+    }
     env.kernel_fuel = env.kernel_fuel + 1;
     if env.kernel_fuel > 5000000 { return 0; }
     env.cnt_is_def_eq_full = env.cnt_is_def_eq_full + 1;
@@ -813,6 +885,7 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     let result: u64 = is_def_eq_core(env, w1, w2);
     if result > 0 {
         def_eq_cache_store(env, w1, w2);
+        def_eq_ctx_cache_store(env, w1, w2);
     }
     env.def_eq_depth = env.def_eq_depth - 1;
     return result;
@@ -1014,11 +1087,21 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
     if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
     if def_eq_cache_lookup(env, e1, e2) > 0 { return 1; }
+    if def_eq_ctx_cache_lookup(env, e1, e2) > 0 {
+        if env.def_eq_ctx_verify == 0 { return 1; }
+        env.cnt_deq_ctx_hit = env.cnt_deq_ctx_hit + 1;
+        env.def_eq_ctx_bypass = env.def_eq_ctx_bypass + 1;
+        let truth: u64 = is_def_eq(env, e1, e2);
+        env.def_eq_ctx_bypass = env.def_eq_ctx_bypass - 1;
+        if truth == 0 { env.cnt_deq_ctx_mismatch = env.cnt_deq_ctx_mismatch + 1; }
+        return truth;
+    }
     // Alpha-equivalence fast-path: settle binder-name-only differences without
     // whnf-reducing (see alpha_eq). Sound; 0 falls through to the normal path.
     env.alpha_budget = alpha_eq_budget();
     if alpha_eq(env, e1, e2) > 0 {
         def_eq_cache_store(env, e1, e2);
+        def_eq_ctx_cache_store(env, e1, e2);
         return 1;
     }
     // At deep recursion, fall back to full-WHNF (avoids stack explosion)
@@ -1037,6 +1120,7 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     env.def_eq_depth = env.def_eq_depth - 1;
     if r > 0 {
         def_eq_cache_store(env, e1, e2);
+        def_eq_ctx_cache_store(env, e1, e2);
     }
     return r;
 }
