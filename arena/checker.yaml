@@ -71,13 +71,14 @@ run: |
   # Genuine rejects (exit 1, no OOM marker), real declines (exit 2) and real
   # crashes are left untouched.
   #
-  # Cap = 12 GiB: the dry-run showed the `Init` accept run peaks at ~7.6 GB, so
-  # 8 GB left almost no headroom; 12 GB is comfortable yet stays below a normal
-  # arena host's RAM, so a genuine OOM still surfaces as Vow's graceful
-  # allocation failure (which we can detect) rather than an OS OOM-kill
-  # (SIGKILL, uncatchable).
+  # Cap = 32 GiB: a full local `Init` run (54,475 decls) was measured at a
+  # 26.9 GB peak, so the previous 12 GiB cap -- sized when the recorded peak
+  # was ~7.6 GB -- aborted the run partway. The cap still stays below a normal
+  # arena host's RAM, so a genuine OOM surfaces as Vow's graceful allocation
+  # failure (which we can detect) rather than an OS OOM-kill (SIGKILL,
+  # uncatchable).
   err="$(mktemp)"
-  ( ulimit -v 12582912 && ./lean_checker "$IN" ) 2>"$err"
+  ( ulimit -v 33554432 && ./lean_checker "$IN" ) 2>"$err"
   rc=$?
   cat "$err" >&2
   if [ "$rc" -ne 0 ] && grep -q '"error":"OutOfMemory"' "$err"; then rc=3; fi

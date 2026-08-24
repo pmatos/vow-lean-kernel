@@ -19,7 +19,7 @@ the NDJSON path.
   pinned `VOW_REF`, `cargo build --all` (Rust bootstrap), self-host the
   Cranelift-backed `vowc`, then `VOWC=… bash scripts/build.sh` to produce
   `lean_checker`. The kernel builds *only* with the self-hosted `vowc`.
-- **run** passes the input through `lean_checker` under `ulimit -v 12G` and
+- **run** passes the input through `lean_checker` under `ulimit -v 32G` and
   forwards its exit code — except that a Vow-runtime **OutOfMemory** (which
   exits `1`, colliding with "reject") is remapped to an **error (3)**, so an
   OOM is never reported as a false reject. See `DRY-RUN.md`.
@@ -40,7 +40,7 @@ Bump `rev` when submitting so the arena builds a known-good commit.
 
 ## `dry-run.sh`
 
-Runs `lean_checker` on one or more NDJSON inputs under `ulimit -v 12G` with
+Runs `lean_checker` on one or more NDJSON inputs under `ulimit -v 32G` with
 `/usr/bin/time -v`, recording exit code, elapsed wall time, and max RSS, and
 tallying accept/reject/decline/error. Mirrors how the arena invokes the checker.
 

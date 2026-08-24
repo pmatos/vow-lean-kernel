@@ -26,7 +26,7 @@ The arena provides a graduated tutorial test sequence that guides incremental im
 ### Registering the checker
 
 The submission lives in [`arena/`](arena/):
-- `checker.yaml` — the arena `checkers/*.yaml` (validated against `schemas/checker.json`): `build` self-hosts `vowc` then builds the kernel; `run` enforces `ulimit -v 12G` and maps a Vow-runtime OOM to a decline (exit 2) so it isn't mistaken for a reject.
+- `checker.yaml` — the arena `checkers/*.yaml` (validated against `schemas/checker.json`): `build` self-hosts `vowc` then builds the kernel; `run` enforces `ulimit -v 32G` and maps a Vow-runtime OOM to a decline (exit 2) so it isn't mistaken for a reject.
 - `dry-run.sh` — run the checker over NDJSON inputs, recording verdict / wall time / max RSS.
 - `gen-inputs.sh` — regenerate the `init`/`std`/`mathlib` inputs via `lean4export` (large, reproducible, **not committed**).
 - `DRY-RUN.md` — measured results.
