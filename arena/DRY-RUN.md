@@ -5,7 +5,9 @@ the arena will report before submitting. Inputs match the arena's `init` / `std`
 / `mathlib` test modules. Each run uses the clean-room-built `lean_checker`,
 measured with `/usr/bin/time -v`. These numbers were taken under an `ulimit -v
 8G` cap; the `run` command's cap has since been **raised to 12 GB** to give the
-`init` accept run headroom (see Resource envelope).
+`init` accept run headroom (see Resource envelope). A later local re-measurement
+found `init` peaking well above that cap — see
+[Local re-measurement](#local-re-measurement-2026-08-24).
 
 Machine: 24 cores, 124 GB RAM (Linux). Runs were serial (one checker at a time),
 so wall time and max RSS are uncontended, but they are still only *indicative* —
@@ -92,6 +94,11 @@ errors, as shown in the "arena verdict" column.)
   typical arena host RAM (so an OOM still surfaces as a graceful, detectable
   allocation failure). The 7.63 GB / 8 GB figures here are from the original 8 GB
   measurement run.
+  **⚠️ Superseded — the 12 GB cap is not sufficient on this machine.** A local
+  re-measurement (2026-08-24, see [Local re-measurement](#local-re-measurement-2026-08-24))
+  puts the same `init` export at a **26.92 GB** peak, so a run under the 12 GB cap
+  aborts partway and is reported as an error. The 7.63 GB reference has not been
+  reproduced locally; that gap is unexplained and tracked in issue #62.
 - **`std`**: OOMs while *checking*, at decl ~32,900/89,805 (`Std.DTreeMap`
   region) — reported as an error via the OOM mapping.
 - **`mathlib`**: OOMs while *loading* the environment, before checking any
@@ -116,3 +123,78 @@ errors, as shown in the "arena verdict" column.)
   [leanprover/lean-kernel-arena#68](https://github.com/leanprover/lean-kernel-arena/pull/68)
   (`checkers/vow-lean-kernel.yaml`). Bump its `rev` if a newer known-good kernel
   commit lands before it merges.
+
+## Local re-measurement (2026-08-24)
+
+Re-measured the `init` accept test on the current kernel while investigating
+issue #62, which reported a local build dying at decl 3700/54475 under an 8 GB
+cap with RSS climbing ~2 MB per checked declaration.
+
+Input: `_build/tests/init.ndjson` — 54,475 declarations, `lean4export` 3.1.0,
+Lean 4.29.0, parse watermark `arena=5726477`. That watermark matches the one
+quoted in #62 exactly, so this is the same file the report was measured against,
+and the same export behind the 7.63 GB reference above.
+
+### The reported symptom no longer reproduces
+
+Same export, same 8 GB cap, current kernel vs. the commit #62 was filed against:
+
+| | `c251890` (as filed) | current kernel |
+|---|---|---|
+| dies at decl | 3700 / 54475 | 19500 / 54475 |
+| peak RSS | 8.38 GB (cap-pinned) | 7.99 GB (cap-pinned) |
+| growth | ~2 MB/decl | ~155 KB/decl |
+| error | `arena_open` OOM | `arena_alloc` OOM |
+
+Bisected to the contextual WHNF cache (PR #65). `f2735bb`, its parent, dies at
+**decl 3700** with `{"error":"OutOfMemory","operation":"arena_open"}` — the
+declaration *and* the failing operation both matching the report. `a4c3724`,
+the merge of #65, runs past it. `c251890` itself predates the strict-int-typing
+migration (PR #64) and can no longer be built with the current `vowc`, so the
+comparison uses the oldest buildable commit rather than the one in the report.
+
+### Full run, cap raised to 32 GB
+
+| metric | value |
+|---|---|
+| verdict | exit 2 (declined) |
+| declarations | reached 54400 / 54475 |
+| declines | 33 |
+| failures | 0 |
+| peak RSS | **26.92 GB** |
+| wall time | 7 h 07 m |
+
+Two declaration families account for over half the peak: decls 19530/19531
+(`Char.ofOrdinal_ordinal`, +6.75 GB across the 18000–22000 window) and
+27420/27437/27440 (`Char.succ?_eq`, +7.89 GB across 26000–30000). Everything
+else grows at roughly 1 GB per 4000 declarations. This matches the ratchet
+behaviour seen in earlier profiling: peak ≈ parse baseline + the worst single
+declaration's transient, not a cumulative leak.
+
+30 of the 33 declines sit at `fuel=50000xx`, i.e. the pre-existing 5M `def_eq`
+fuel cap. The largest arena delta anywhere is 5.45M nodes, well under the 16M
+per-declaration allocation ceiling from PR #63, so that ceiling never trips. The
+remaining 3 (decls 20452 / 22853 / 35291, the SInt `instUpwardEnumerable_eq`
+family) give up at 35K–86K fuel through some other path, not yet identified.
+
+The declines are not a regression from the recent kernel work: at `a4c3724` —
+immediately after #65, before #66/#68/#69/#73 — decls 4559 and 4628 already
+decline exactly as they do now. Before #65 the run never reached them.
+
+### Reference kernel on the same input
+
+The official Lean kernel (`checkers/official`, toolchain v4.29.0) on the same
+file:
+
+```
+Accepted 54472 declarations.
+exit 0   elapsed 0:50.67   max RSS 542 MB
+```
+
+54,472 = 54,475 minus the three `Quot` declarations it erases before replay. So
+every declaration in this export is well-typed, and all 33 of our declines are
+sound abstains on valid input rather than disagreements. It also sets the
+performance gap plainly: 50 seconds and 542 MB against 7 hours and 26.92 GB.
+
+Worth re-running first in any future verdict dispute — it builds in about a
+minute with `lake build` and is authoritative.
