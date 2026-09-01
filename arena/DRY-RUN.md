@@ -10,7 +10,9 @@ most expensive declaration's transient working set (a ratchet, not an
 accumulating leak — see `kernel/memory` project notes), **raised again to
 32 GB** to give headroom for that class of declaration (see Resource envelope).
 The numbers below predate both raises and are not re-measured against the
-current cap.
+current cap. A later local re-measurement of the
+54,475-decl export (2026-08-24) independently supports the 32 GB cap — see
+[Local re-measurement](#local-re-measurement-2026-08-24).
 
 Machine: 24 cores, 124 GB RAM (Linux). Runs were serial (one checker at a time),
 so wall time and max RSS are uncontended, but they are still only *indicative* —
@@ -113,6 +115,10 @@ errors, as shown in the "arena verdict" column.)
   (so an OOM still surfaces as a graceful, detectable allocation failure). The
   7.63 GB / 8 GB figures here are from the original 8 GB measurement run against
   the older 54,475-decl export.
+  A later local run of that older 54,475-decl export peaked at **26.92 GB**
+  (2026-08-24, see [Local re-measurement](#local-re-measurement-2026-08-24)),
+  so the 32 GB cap is needed for this export too — not only for the harder
+  54,086-decl one profiled above.
 - **`std`**: OOMs while *checking*, at decl ~32,900/89,805 (`Std.DTreeMap`
   region) — reported as an error via the OOM mapping.
 - **`mathlib`**: OOMs while *loading* the environment, before checking any
@@ -137,3 +143,90 @@ errors, as shown in the "arena verdict" column.)
   [leanprover/lean-kernel-arena#68](https://github.com/leanprover/lean-kernel-arena/pull/68)
   (`checkers/vow-lean-kernel.yaml`). Bump its `rev` if a newer known-good kernel
   commit lands before it merges.
+
+## Local re-measurement (2026-08-24)
+
+Re-measured the `init` accept test on the current kernel while investigating
+issue #62, which reported a local build dying at decl 3700/54475 under an 8 GB
+cap with RSS climbing ~2 MB per checked declaration.
+
+Input: `_build/tests/init.ndjson` — 54,475 declarations, `lean4export` 3.1.0,
+Lean 4.29.0, parse watermark `arena=5726477`. That watermark matches the one
+quoted in #62 exactly, so this is the same file the report was measured against,
+and the same export behind the 7.63 GB reference above.
+
+### The 8 GB run still OOMs, at decl 19500 instead of 3700
+
+Under the same 8 GB cap the current kernel still terminates with an
+`OutOfMemory`, so #62's underlying failure is not resolved: it moves from decl
+3700 to decl 19500, and from `arena_open` to `arena_alloc`. The left column
+below is quoted from #62 and was **not** re-measured here; only the right column
+is a measurement from this investigation. Against #62's reported ~2 MB/decl
+— itself unconfirmed here — the measured 155 KB/decl is roughly a 13× reduction.
+
+| | #62 as filed (`c251890`) | current kernel (measured) |
+|---|---|---|
+| dies at decl | 3700 / 54475 | 19500 / 54475 |
+| peak RSS | 8.38 GB (cap-pinned) | 7.99 GB (cap-pinned) |
+| growth | ~2 MB/decl | ~155 KB/decl |
+| error | `arena_open` OOM | `arena_alloc` OOM |
+
+`c251890` predates the strict-int-typing migration (PR #64) and can no longer be
+built with the current `vowc`, so its figures above stand as filed rather than
+re-measured. The oldest buildable commit, `f2735bb` — the parent of the PR #65
+merge, separated from `c251890` by PRs #63 and #64 — does reproduce two of them
+independently: it dies at **decl 3700** with
+`{"error":"OutOfMemory","operation":"arena_open"}`, matching both the reported
+declaration and the failing operation. `a4c3724`, the merge of #65, runs past
+it, which places the improvement at the contextual WHNF cache. Per-decl growth
+and peak RSS at `f2735bb` were not separately recorded, so the ~2 MB/decl and
+8.38 GB rows remain unconfirmed by any build in this investigation.
+
+Nor is the aggregate gap #62 raised closed: the full run below needs **26.92 GB**
+against the 7.63 GB reference, i.e. wider than when #62 was filed.
+
+### Full run at the 32 GB cap
+
+| metric | value |
+|---|---|
+| verdict | exit 2 (declined) |
+| declarations | reached 54400 / 54475 |
+| declines | 33 |
+| failures | 0 |
+| peak RSS | **26.92 GB** |
+| wall time | 7 h 07 m |
+
+Two declaration families account for over half the peak: decls 19530/19531
+(`Char.ofOrdinal_ordinal`, +6.75 GB across the 18000–22000 window) and
+27420/27437/27440 (`Char.succ?_eq`, +7.89 GB across 26000–30000). Everything
+else grows at roughly 1 GB per 4000 declarations. This matches the ratchet
+behaviour seen in earlier profiling: peak ≈ parse baseline + the worst single
+declaration's transient, not a cumulative leak.
+
+30 of the 33 declines sit at `fuel=50000xx`, i.e. the pre-existing 5M `def_eq`
+fuel cap. The largest arena delta anywhere is 5.45M nodes, well under the 16M
+per-declaration allocation ceiling from PR #63, so that ceiling never trips. The
+remaining 3 (decls 20452 / 22853 / 35291, the SInt `instUpwardEnumerable_eq`
+family) give up at 35K–86K fuel through some other path, not yet identified.
+
+The declines are not a regression from the recent kernel work: at `a4c3724` —
+immediately after #65, before #66/#68/#69/#73 — decls 4559 and 4628 already
+decline exactly as they do now. Before #65 the run never reached them.
+
+### Reference kernel on the same input
+
+The official Lean kernel (`checkers/official`, toolchain v4.29.0) on the same
+file:
+
+```
+Accepted 54472 declarations.
+exit 0   elapsed 0:50.67   max RSS 542 MB
+```
+
+54,472 = 54,475 minus the three `Quot` declarations it erases before replay. So
+every declaration in this export is well-typed, and all 33 of our declines are
+sound abstains on valid input rather than disagreements. It also sets the
+performance gap plainly: 50 seconds and 542 MB against 7 hours and 26.92 GB.
+
+Worth re-running first in any future verdict dispute — it builds in about a
+minute with `lake build` and is authoritative.
