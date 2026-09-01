@@ -4,9 +4,14 @@ Local characterization of the checker on real `lean4export` NDJSON, to know what
 the arena will report before submitting. Inputs match the arena's `init` / `std`
 / `mathlib` test modules. Each run uses the clean-room-built `lean_checker`,
 measured with `/usr/bin/time -v`. These numbers were taken under an `ulimit -v
-8G` cap; the `run` command's cap has since been **raised to 12 GB** to give the
-`init` accept run headroom (see Resource envelope). A later local re-measurement
-found `init` peaking well above that cap — see
+8G` cap; the `run` command's cap has since been raised to 12 GB and then, after
+RSS profiling (2026-07-30) found the checker's peak memory is set by the single
+most expensive declaration's transient working set (a ratchet, not an
+accumulating leak — see `kernel/memory` project notes), **raised again to
+32 GB** to give headroom for that class of declaration (see Resource envelope).
+The numbers below predate both raises and are not re-measured against the
+current cap. A later local re-measurement of the
+54,475-decl export (2026-08-24) independently supports the 32 GB cap — see
 [Local re-measurement](#local-re-measurement-2026-08-24).
 
 Machine: 24 cores, 124 GB RAM (Linux). Runs were serial (one checker at a time),
@@ -39,12 +44,25 @@ Validated three ways against the clean-room binary:
 | genuine reject (`tests/bad` fixture)   | 1 | no  | **1 — reject** |
 | accept (tutorial fixture)              | 0 | no  | **0 — accept** |
 
-Why the cap is 12 GB: the runtime's graceful OOM detection fires when a Vow
-allocation hits the `ulimit -v` ceiling, so the cap must sit *below* the host's
-physical RAM — otherwise the OS OOM-killer strikes first (SIGKILL → uncatchable
-`error`). 8 GB gave that but left `init` almost no headroom (it needs 7.6 GB);
-12 GB keeps the graceful behaviour on any normal arena host (≥16 GB) while giving
-`init` comfortable room.
+Why the cap was 12 GB (superseded, see below): the runtime's graceful OOM
+detection fires when a Vow allocation hits the `ulimit -v` ceiling, so the cap
+must sit *below* the host's physical RAM — otherwise the OS OOM-killer strikes
+first (SIGKILL → uncatchable `error`). 8 GB gave that but left `init` almost no
+headroom (it needs 7.6 GB); 12 GB kept the graceful behaviour on any normal
+arena host (≥16 GB) while giving `init` comfortable room — for the 54,475-decl
+export this file's numbers were measured against.
+
+**Update (2026-07-30):** RSS profiling against the arena's current `init.ndjson`
+(a different, 54,086-decl 4.29.0-rc1 export — harder than the 54,475-decl one
+above) found a single declaration (`Char.ofOrdinal_ordinal._proof_1_4`, a
+Char/Unicode ordinal round-trip proof) alone pushes RSS from ~5.5 GB to ~11 GB
+before the kernel's existing 5M def_eq-fuel cap declines it. Since peak memory
+tracks the worst single declaration's transient working set rather than
+accumulating across a run, the cap was raised to **32 GB** to give this class of
+declaration room, rather than tightening the fuel cap (which would risk
+false-declining other legitimately expensive but valid declarations, e.g. the
+`Array.Extract` family, which needs similar headroom to *accept*). See
+`kernel/memory` project notes for the full characterization.
 
 ## Build & smoke
 
@@ -90,15 +108,17 @@ errors, as shown in the "arena verdict" column.)
 - **`init` (the accept test): 7.63 GB max RSS — under the original 8 GB cap that
   was only ~4.7% headroom.** This is heavier than the older ~5 GB figure (the
   clean-room self-hosted `vowc` differs from the local prebuilt one). **Resolved:**
-  the `run` cap is now **12 GB**, giving `init` ~57% headroom while staying below
-  typical arena host RAM (so an OOM still surfaces as a graceful, detectable
-  allocation failure). The 7.63 GB / 8 GB figures here are from the original 8 GB
-  measurement run.
-  **⚠️ Superseded — the 12 GB cap is not sufficient on this machine.** A local
-  re-measurement (2026-08-24, see [Local re-measurement](#local-re-measurement-2026-08-24))
-  puts the same `init` export at a **26.92 GB** peak, so a run under the 12 GB cap
-  aborts partway and is reported as an error. The 7.63 GB reference has not been
-  reproduced locally; that gap is unexplained and tracked in issue #62.
+  the `run` cap was raised to 12 GB, then to **32 GB** (2026-07-30, see the
+  Headline finding update above) once profiling against the arena's current
+  (harder, 54,086-decl) `init.ndjson` found a single declaration's transient
+  working set alone approaching 11 GB. 32 GB stays below typical arena host RAM
+  (so an OOM still surfaces as a graceful, detectable allocation failure). The
+  7.63 GB / 8 GB figures here are from the original 8 GB measurement run against
+  the older 54,475-decl export.
+  A later local run of that older 54,475-decl export peaked at **26.92 GB**
+  (2026-08-24, see [Local re-measurement](#local-re-measurement-2026-08-24)),
+  so the 32 GB cap is needed for this export too — not only for the harder
+  54,086-decl one profiled above.
 - **`std`**: OOMs while *checking*, at decl ~32,900/89,805 (`Std.DTreeMap`
   region) — reported as an error via the OOM mapping.
 - **`mathlib`**: OOMs while *loading* the environment, before checking any
@@ -165,7 +185,7 @@ and peak RSS at `f2735bb` were not separately recorded, so the ~2 MB/decl and
 Nor is the aggregate gap #62 raised closed: the full run below needs **26.92 GB**
 against the 7.63 GB reference, i.e. wider than when #62 was filed.
 
-### Full run, cap raised to 32 GB
+### Full run at the 32 GB cap
 
 | metric | value |
 |---|---|
