@@ -135,23 +135,35 @@ Lean 4.29.0, parse watermark `arena=5726477`. That watermark matches the one
 quoted in #62 exactly, so this is the same file the report was measured against,
 and the same export behind the 7.63 GB reference above.
 
-### The reported symptom no longer reproduces
+### The 8 GB run still OOMs, at decl 19500 instead of 3700
 
-Same export, same 8 GB cap, current kernel vs. the commit #62 was filed against:
+Under the same 8 GB cap the current kernel still terminates with an
+`OutOfMemory`, so #62's underlying failure is not resolved: it moves from decl
+3700 to decl 19500, and from `arena_open` to `arena_alloc`. The left column
+below is quoted from #62 and was **not** re-measured here; only the right column
+is a measurement from this investigation. Against #62's reported ~2 MB/decl
+— itself unconfirmed here — the measured 155 KB/decl is roughly a 13× reduction.
 
-| | `c251890` (as filed) | current kernel |
+| | #62 as filed (`c251890`) | current kernel (measured) |
 |---|---|---|
 | dies at decl | 3700 / 54475 | 19500 / 54475 |
 | peak RSS | 8.38 GB (cap-pinned) | 7.99 GB (cap-pinned) |
 | growth | ~2 MB/decl | ~155 KB/decl |
 | error | `arena_open` OOM | `arena_alloc` OOM |
 
-Bisected to the contextual WHNF cache (PR #65). `f2735bb`, its parent, dies at
-**decl 3700** with `{"error":"OutOfMemory","operation":"arena_open"}` — the
-declaration *and* the failing operation both matching the report. `a4c3724`,
-the merge of #65, runs past it. `c251890` itself predates the strict-int-typing
-migration (PR #64) and can no longer be built with the current `vowc`, so the
-comparison uses the oldest buildable commit rather than the one in the report.
+`c251890` predates the strict-int-typing migration (PR #64) and can no longer be
+built with the current `vowc`, so its figures above stand as filed rather than
+re-measured. The oldest buildable commit, `f2735bb` — the parent of the PR #65
+merge, separated from `c251890` by PRs #63 and #64 — does reproduce two of them
+independently: it dies at **decl 3700** with
+`{"error":"OutOfMemory","operation":"arena_open"}`, matching both the reported
+declaration and the failing operation. `a4c3724`, the merge of #65, runs past
+it, which places the improvement at the contextual WHNF cache. Per-decl growth
+and peak RSS at `f2735bb` were not separately recorded, so the ~2 MB/decl and
+8.38 GB rows remain unconfirmed by any build in this investigation.
+
+Nor is the aggregate gap #62 raised closed: the full run below needs **26.92 GB**
+against the 7.63 GB reference, i.e. wider than when #62 was filed.
 
 ### Full run, cap raised to 32 GB
 
