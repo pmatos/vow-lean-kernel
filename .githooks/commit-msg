@@ -29,10 +29,13 @@ fail() {
   exit 1
 }
 
-# Count Unicode characters, not bytes: strip UTF-8 continuation bytes
-# (10xxxxxx) so one byte remains per codepoint. ${#first_line} isn't used
-# here because its byte-vs-character behavior under LC_ALL=C varies by shell.
-header_len=$(printf '%s' "$first_line" | tr -d '\200-\277' | wc -c)
+# Count UTF-16 code units, matching commitlint's JS String.length: strip
+# UTF-8 continuation bytes (10xxxxxx) to get codepoints, then add one per
+# 4-byte-lead byte (\360-\364, i.e. codepoints >= U+10000), each of which
+# encodes as a UTF-16 surrogate pair (2 units) instead of 1.
+codepoints=$(printf '%s' "$first_line" | tr -d '\200-\277' | wc -c)
+astral=$(printf '%s' "$first_line" | tr -dc '\360-\364' | wc -c)
+header_len=$((codepoints + astral))
 [ "$header_len" -le 100 ] || fail "subject must not be longer than 100 characters"
 
 pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-zA-Z0-9_./-]+\))?!?: .+'
