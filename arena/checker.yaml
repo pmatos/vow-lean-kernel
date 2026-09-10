@@ -83,8 +83,14 @@ run: |
   # staying well below a normal arena host's RAM, so a genuine OOM still
   # surfaces as Vow's graceful allocation failure (which we can detect) rather
   # than an OS OOM-kill (SIGKILL, uncatchable).
+  # Explicit stack cap (issue #78): the def_eq/whnf native recursion is bounded
+  # by depth caps sized for a >=8 MiB stack (kernel/whnf.vow's whnf_depth_cap,
+  # kernel/def_eq.vow's def_eq_depth_cap; see their comments for the byte
+  # budget this was measured against). Relying on the arena host's inherited
+  # default (often 8 MiB, sometimes less) rather than setting it here is what
+  # let this margin go unnoticed until a StackOverflow surfaced in practice.
   err="$(mktemp)"
-  ( ulimit -v 33554432 && ./lean_checker "$IN" ) 2>"$err"
+  ( ulimit -v 33554432 && ulimit -s 65536 && ./lean_checker "$IN" ) 2>"$err"
   rc=$?
   cat "$err" >&2
   if [ "$rc" -ne 0 ] && grep -q '"error":"OutOfMemory"' "$err"; then rc=3; fi

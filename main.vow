@@ -324,6 +324,10 @@ fn main() -> i32 [io, read] {
             print_u64(arena_delta);
             print_str(String::from(" fuel="));
             print_u64(env.kernel_fuel);
+            print_str(String::from(" mdeq="));
+            print_u64(env.max_def_eq_depth);
+            print_str(String::from(" mwhnf="));
+            print_u64(env.max_whnf_depth);
             print_str(String::from(" infer_u="));
             print_u64(env.cnt_infer_uncached);
             print_str(String::from(" deq_full="));
@@ -389,8 +393,11 @@ fn main() -> i32 [io, read] {
         env.def_eq_depth = 0;
         env.def_eq_binder_depth = 0;
         env.whnf_depth = 0;
+        env.max_def_eq_depth = 0;
+        env.max_whnf_depth = 0;
         env.kernel_fuel = 0;
         env.alloc_tripped = 0;
+        env.def_eq_gaveup = 0;
         env.cnt_infer_uncached = 0;
         env.cnt_is_def_eq_full = 0;
         env.cnt_is_def_eq_one = 0;

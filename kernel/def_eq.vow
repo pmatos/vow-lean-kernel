@@ -792,22 +792,38 @@ pub fn defeq_local_base() -> u64 {
     return 72057594037927936;
 }
 
+// Native-stack safety bound for the is_def_eq_full/is_def_eq_core recursion
+// (issue #78), same rationale as whnf_depth_cap (kernel/whnf.vow). gdb frame
+// measurements on a decl-19530 crash (issue #78, StackOverflow under a 2 MB
+// test stack) put a full is_def_eq_full/is_def_eq_core recursion step at ~3.3
+// KB of stack; the previous cap of 5000 alone would use =~15.8 MB, and a
+// single is_def_eq_full frame can additionally host a nested whnf_depth-capped
+// subtree (kernel/whnf.vow's whnf(e1)/whnf(e2) calls near the top of this
+// function), so the two caps' worst cases add on the same call chain. 800
+// leaves =~2.5 MB for this recursion, safely combined with whnf_depth_cap's
+// =~3 MB budget under even an 8 MB default stack.
+fn def_eq_depth_cap() -> u64 {
+    return 800;
+}
+
 // Full-WHNF def_eq for non-App structural checks (Lambda bodies, extensions)
 fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
     // Scoped-probe arena ceiling (issue #41): an over-expanded probe gives up
     // here (conservative "not equal") so the App-branch caller uses eager.
-    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
+    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { env.def_eq_gaveup = 1; return 0; }
     let w1: u64 = whnf(env, e1);
     let w2: u64 = whnf(env, e2);
     if w1 == w2 { return 1; }
     if def_eq_cache_lookup(env, w1, w2) > 0 { return 1; }
     env.kernel_fuel = env.kernel_fuel + 1;
-    if env.kernel_fuel > 5000000 { return 0; }
+    if env.kernel_fuel > 5000000 { env.def_eq_gaveup = 1; return 0; }
     env.cnt_is_def_eq_full = env.cnt_is_def_eq_full + 1;
     env.def_eq_depth = env.def_eq_depth + 1;
-    if env.def_eq_depth > 5000 {
+    if env.def_eq_depth > env.max_def_eq_depth { env.max_def_eq_depth = env.def_eq_depth; }
+    if env.def_eq_depth > def_eq_depth_cap() {
         env.def_eq_depth = env.def_eq_depth - 1;
+        env.def_eq_gaveup = 1;
         return 0;
     }
     let result: u64 = is_def_eq_core(env, w1, w2);
@@ -823,7 +839,7 @@ fn is_def_eq_full(env: Environment, e1: u64, e2: u64) -> u64 {
 // no shared stack and stays re-entrant-safe.
 fn is_def_eq_one(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
-    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
+    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { env.def_eq_gaveup = 1; return 0; }
     env.cnt_is_def_eq_one = env.cnt_is_def_eq_one + 1;
     // Iterative lazy delta loop for this pair
     let mut cur1: u64 = e1;
@@ -1012,7 +1028,7 @@ fn alpha_eq(env: Environment, a: u64, b: u64) -> u64 {
 
 pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     if e1 == e2 { return 1; }
-    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { return 0; }
+    if env.lazy_arena_cap > 0 && (env.exprs.tags.len() as u64) > env.lazy_arena_cap { env.def_eq_gaveup = 1; return 0; }
     if def_eq_cache_lookup(env, e1, e2) > 0 { return 1; }
     // Alpha-equivalence fast-path: settle binder-name-only differences without
     // whnf-reducing (see alpha_eq). Sound; 0 falls through to the normal path.
@@ -1023,6 +1039,7 @@ pub fn is_def_eq(env: Environment, e1: u64, e2: u64) -> u64 {
     }
     // At deep recursion, fall back to full-WHNF (avoids stack explosion)
     env.def_eq_depth = env.def_eq_depth + 1;
+    if env.def_eq_depth > env.max_def_eq_depth { env.max_def_eq_depth = env.def_eq_depth; }
     if env.def_eq_depth > 256 {
         env.def_eq_depth = env.def_eq_depth - 1;
         return is_def_eq_full(env, e1, e2);
