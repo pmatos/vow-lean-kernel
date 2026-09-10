@@ -189,7 +189,7 @@ fn rebuild_apps_skip_range(env: Environment, head: u64, args: Vec<u64>, lo: u64,
 // measurements on a decl-19530 crash (issue #78, StackOverflow under a 2 MB
 // test stack) put a full whnf+whnf_core recursion step at ~15.7 KB of stack.
 // The previous cap of 1024 was therefore itself unsafe (1024 * 15.7 KB =~
-// 15.4 MB, i.e. already at the edge of a default 16 MB stack with zero
+// 15.7 MB, i.e. already at the edge of a default 16 MB stack with zero
 // margin for the is_def_eq/infer frames that sit above it on the same call
 // chain in practice). 200 leaves ~3 MB for this recursion alone, safely
 // under even an 8 MB stack once combined with is_def_eq_full's own cap
@@ -1552,6 +1552,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             return cur;
         }
     }
+    // Local reduction-step budget exhausted without converging (reduced was
+    // never 0): cur is under-reduced, the same conservative give-up as the
+    // depth caps above -- flag it (issue #78 review) so check_decl_idx can
+    // downgrade a reject reached this way to a sound decline.
+    env.def_eq_gaveup = 1;
     if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < (env.exprs.cache.len() as u64) {
         expr_whnf_cache_set(env.exprs, orig_expr, cur);
     } else if do_delta > 0 && env.infer_ctx_types.len() > 0 {

@@ -18,6 +18,12 @@ CHECKER="./lean_checker"
 # Virtual-memory cap (KiB) applied per checker invocation. 8 GiB by default —
 # deeper proof terms need it (see CLAUDE.md); override with --mem-limit.
 MEM_LIMIT=8388608
+# Stack cap (KiB), matching arena/checker.yaml's production value. The
+# whnf/def_eq recursion-depth caps (issue #78) are sized for a >=8 MiB stack;
+# without setting this explicitly, CI/local runs inherit the host's own
+# default (which may be smaller) and would never actually exercise the margin
+# those caps assume.
+STACK_LIMIT=65536
 DIRS=()
 
 usage() {
@@ -81,7 +87,7 @@ for dir in "${DIRS[@]}"; do
         esac
 
         set +e
-        ( ulimit -v "$MEM_LIMIT" && "$CHECKER" "$ndjson" >/dev/null 2>&1 )
+        ( ulimit -v "$MEM_LIMIT" && ulimit -s "$STACK_LIMIT" && "$CHECKER" "$ndjson" >/dev/null 2>&1 )
         rc=$?
         set -e
 

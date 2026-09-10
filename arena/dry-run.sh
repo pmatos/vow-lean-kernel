@@ -12,6 +12,7 @@ set -uo pipefail
 
 CHECKER="./lean_checker"
 MEM_LIMIT=33554432         # 32 GiB, matches checker.yaml's run command
+STACK_LIMIT=65536          # 64 MiB, matches checker.yaml's run command (issue #78)
 OUT=""                     # markdown results file; default: stdout only
 LOGDIR="${TMPDIR:-/tmp}/lean-dry-run"
 
@@ -50,7 +51,7 @@ for pair in "${args[@]}"; do
     safe="${label//\//_}"
     tlog="$LOGDIR/${safe}.time"; olog="$LOGDIR/${safe}.out"
 
-    ( ulimit -v "$MEM_LIMIT" && exec /usr/bin/time -v "$CHECKER" "$file" ) >"$olog" 2>"$tlog"
+    ( ulimit -v "$MEM_LIMIT" && ulimit -s "$STACK_LIMIT" && exec /usr/bin/time -v "$CHECKER" "$file" ) >"$olog" 2>"$tlog"
     rc=$?
 
     wall=$(grep -m1 -oP 'Elapsed \(wall clock\) time \(h:mm:ss or m:ss\): \K.*' "$tlog" 2>/dev/null || echo '?')
