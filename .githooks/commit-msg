@@ -1,0 +1,76 @@
+#!/usr/bin/env sh
+# Validates the commit message subject against Conventional Commits
+# (https://www.conventionalcommits.org/), mirroring the header-length,
+# subject-full-stop, and subject-case rules from commitlint.config.cjs's
+# @commitlint/config-conventional that a dependency-free POSIX check can
+# approximate. Body/footer rules are out of scope; CI's commitlint job
+# (.github/workflows/commitlint.yml) remains authoritative. Enabled via:
+#   git config core.hooksPath .githooks
+set -eu
+export LC_ALL=C
+
+msg_file="$1"
+first_line=$(head -n1 "$msg_file")
+
+# Trim trailing space, tab, and a stray \r left by CRLF line endings: git's
+# default "strip" cleanup mode removes exactly these from the subject AFTER
+# this hook runs (verified: it does NOT strip \v or \f), so checking the
+# untrimmed text can both accept what git will go on to store as ending in a
+# period, and reject a header that's within the limit once they're gone.
+# [[:space:]] isn't used here because it also matches \v and \f, which git
+# does not strip, so it would trim characters git and commitlint still see.
+tab=$(printf '\t')
+cr=$(printf '\r')
+first_line=$(printf '%s' "$first_line" | sed "s/[ ${tab}${cr}]*\$//")
+
+case "$first_line" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
+esac
+
+fail() {
+  echo "commit-msg: $1" >&2
+  echo "  $first_line" >&2
+  exit 1
+}
+
+# Count UTF-16 code units, matching commitlint's JS String.length: strip
+# UTF-8 continuation bytes (10xxxxxx) to get codepoints, then add one per
+# complete 4-byte sequence (a \360-\364 lead byte followed by three
+# \200-\277 continuation bytes, i.e. codepoints >= U+10000), each of which
+# encodes as a UTF-16 surrogate pair (2 units) instead of 1. Matching the
+# full 4-byte sequence (not just the lead byte) avoids double-counting a
+# malformed/truncated lead byte, which decodes as a single U+FFFD
+# replacement character (1 unit), same as a plain codepoint here.
+codepoints=$(printf '%s' "$first_line" | tr -d '\200-\277' | wc -c)
+lead_lo=$(printf '\360'); lead_hi=$(printf '\364')
+cont_lo=$(printf '\200'); cont_hi=$(printf '\277')
+# Count matches by byte-length difference (before/after deleting each 4-byte
+# match), not by substituting a marker byte and counting it back: a marker
+# byte already present in the subject would be indistinguishable from one
+# sed just inserted, silently inflating the count.
+before_len=$(printf '%s' "$first_line" | wc -c)
+after_len=$(printf '%s' "$first_line" | sed "s/[$lead_lo-$lead_hi][$cont_lo-$cont_hi][$cont_lo-$cont_hi][$cont_lo-$cont_hi]//g" | wc -c)
+astral=$(( (before_len - after_len) / 4 ))
+header_len=$((codepoints + astral))
+[ "$header_len" -le 100 ] || fail "subject must not be longer than 100 characters"
+
+pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-zA-Z0-9_./-]+\))?!?: .+'
+
+if ! printf '%s\n' "$first_line" | grep -Eq "$pattern"; then
+  echo "commit-msg: subject does not follow Conventional Commits:" >&2
+  echo "  $first_line" >&2
+  echo "  expected: type(scope)?: description" >&2
+  echo "  types: build chore ci docs feat fix perf refactor revert style test" >&2
+  exit 1
+fi
+
+description=${first_line#*: }
+
+case "$description" in
+  *...) : ;; # ellipsis is exempt, matching commitlint's subject-full-stop
+  *.) fail "subject must not end with a period" ;;
+esac
+
+case "$description" in
+  [[:upper:]]*) fail "subject must not start with an uppercase letter" ;;
+esac
