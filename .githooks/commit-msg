@@ -51,6 +51,7 @@ fi
 description=${first_line#*: }
 
 case "$description" in
+  *...) : ;; # ellipsis is exempt, matching commitlint's subject-full-stop
   *.) fail "subject must not end with a period" ;;
 esac
 
