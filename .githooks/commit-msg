@@ -1,8 +1,13 @@
 #!/usr/bin/env sh
 # Validates the commit message subject against Conventional Commits
-# (https://www.conventionalcommits.org/). Enabled via:
+# (https://www.conventionalcommits.org/), mirroring the header-length,
+# subject-full-stop, and subject-case rules from commitlint.config.cjs's
+# @commitlint/config-conventional that a dependency-free POSIX check can
+# approximate. Body/footer rules are out of scope; CI's commitlint job
+# (.github/workflows/commitlint.yml) remains authoritative. Enabled via:
 #   git config core.hooksPath .githooks
 set -eu
+export LC_ALL=C
 
 msg_file="$1"
 first_line=$(head -n1 "$msg_file")
@@ -10,6 +15,14 @@ first_line=$(head -n1 "$msg_file")
 case "$first_line" in
   "Merge "*|"Revert "*|"fixup! "*|"squash! "*) exit 0 ;;
 esac
+
+fail() {
+  echo "commit-msg: $1" >&2
+  echo "  $first_line" >&2
+  exit 1
+}
+
+[ "${#first_line}" -le 100 ] || fail "subject must not be longer than 100 characters"
 
 pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-zA-Z0-9_./-]+\))?!?: .+'
 
@@ -20,3 +33,13 @@ if ! printf '%s\n' "$first_line" | grep -Eq "$pattern"; then
   echo "  types: build chore ci docs feat fix perf refactor revert style test" >&2
   exit 1
 fi
+
+description=${first_line#*: }
+
+case "$description" in
+  *.) fail "subject must not end with a period" ;;
+esac
+
+case "$description" in
+  [[:upper:]]*) fail "subject must not start with an uppercase letter" ;;
+esac
