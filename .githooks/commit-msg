@@ -22,7 +22,11 @@ fail() {
   exit 1
 }
 
-[ "${#first_line}" -le 100 ] || fail "subject must not be longer than 100 characters"
+# Count Unicode characters, not bytes: strip UTF-8 continuation bytes
+# (10xxxxxx) so one byte remains per codepoint. ${#first_line} isn't used
+# here because its byte-vs-character behavior under LC_ALL=C varies by shell.
+header_len=$(printf '%s' "$first_line" | tr -d '\200-\277' | wc -c)
+[ "$header_len" -le 100 ] || fail "subject must not be longer than 100 characters"
 
 pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-zA-Z0-9_./-]+\))?!?: .+'
 
