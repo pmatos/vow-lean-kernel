@@ -534,7 +534,7 @@ fn parse_inductive_decl(env: Environment, line: String) -> bool {
     env.ind_ctor_start.push(ctor_start);
     env.ind_ctor_count.push(ctor_count);
     env.ind_rec_start.push(rec_start);
-    env.ind_rec_count.push(recs.len());
+    env.ind_rec_count.push(recs.len() as u64);
 
     let ind_idx: u64 = (env.ind_type_start.len() as u64) - 1;
 
