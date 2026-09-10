@@ -12,12 +12,16 @@ export LC_ALL=C
 msg_file="$1"
 first_line=$(head -n1 "$msg_file")
 
-# Trim trailing whitespace (spaces, tabs, and a stray \r left by CRLF line
-# endings): git's default "strip" cleanup mode removes this from the subject
-# AFTER this hook runs, so checking the untrimmed text can both accept what
-# git will go on to store as ending in a period, and reject a header that's
-# within the limit once the trailing whitespace is gone.
-first_line=$(printf '%s' "$first_line" | sed -E 's/[[:space:]]+$//')
+# Trim trailing space, tab, and a stray \r left by CRLF line endings: git's
+# default "strip" cleanup mode removes exactly these from the subject AFTER
+# this hook runs (verified: it does NOT strip \v or \f), so checking the
+# untrimmed text can both accept what git will go on to store as ending in a
+# period, and reject a header that's within the limit once they're gone.
+# [[:space:]] isn't used here because it also matches \v and \f, which git
+# does not strip, so it would trim characters git and commitlint still see.
+tab=$(printf '\t')
+cr=$(printf '\r')
+first_line=$(printf '%s' "$first_line" | sed "s/[ ${tab}${cr}]*\$//")
 
 case "$first_line" in
   "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
