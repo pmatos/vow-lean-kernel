@@ -13,7 +13,7 @@ msg_file="$1"
 first_line=$(head -n1 "$msg_file")
 
 case "$first_line" in
-  "Merge "*|"Revert "*|"fixup! "*|"squash! "*) exit 0 ;;
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"amend! "*) exit 0 ;;
 esac
 
 fail() {
