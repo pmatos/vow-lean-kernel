@@ -31,22 +31,25 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout kernel
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           path: kernel
 
       - name: Checkout vow-lang/vow
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: vow-lang/vow
           ref: ${{ env.VOW_REF }}
           path: vow
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        # dtolnay/rust-toolchain has no version tags; @stable is a channel ref.
+        # Pinned to the tip of the `stable` branch as of the pin date — bump
+        # periodically to pick up toolchain-resolution updates.
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
       - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2.9.1
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: vow
 
@@ -82,6 +85,6 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: shellcheck
         run: shellcheck scripts/*.sh tests/sint/run.sh
