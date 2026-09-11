@@ -506,6 +506,22 @@ fn recursor_major_is_symbolic(env: Environment, app: u64, arg_count: u64, rec_id
     return app_head_is_bitvec_to_nat(env, major);
 }
 
+// Isolate a nested is_def_eq probe's own give-up state from the caller's
+// (issue #78 review): a probe that fails always falls through to a
+// fully-powered re-decision, so its own give-up is never the final verdict
+// and must not spuriously taint an unrelated, later definite reject into a
+// downgraded decline. Call gaveup_isolate_begin before the probe and
+// gaveup_isolate_end (with its return value) after, regardless of outcome.
+fn gaveup_isolate_begin(env: Environment) -> u64 {
+    let saved: u64 = env.def_eq_gaveup;
+    env.def_eq_gaveup = 0;
+    return saved;
+}
+
+fn gaveup_isolate_end(env: Environment, saved: u64) {
+    env.def_eq_gaveup = saved;
+}
+
 fn should_try_lazy_app_congruence(env: Environment, head: u64, w1: u64, w2: u64, arg_count: u64) -> u64 {
     // Fire the lazy-first congruence fast-path for any same-headed application
     // inside a has_size_eq proof (Rxi OR Rxc). The eager path over-expands
@@ -1128,16 +1144,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                                 // a wider member the eager path already handles hits
                                 // the ceiling, aborts, and falls through to eager.
                                 let cap_saved: u64 = env.lazy_arena_cap;
-                                // A probe give-up must not taint the surrounding
-                                // declaration's def_eq_gaveup: on failure this
-                                // probe always falls through to a fully-powered
-                                // re-decision (is_def_eq_full below), so its own
-                                // give-up state is never the final verdict and
-                                // must not spuriously downgrade an unrelated,
-                                // definite later reject to a decline (issue #78
-                                // review).
-                                let gaveup_saved: u64 = env.def_eq_gaveup;
-                                env.def_eq_gaveup = 0;
+                                let gaveup_saved: u64 = gaveup_isolate_begin(env);
                                 env.lazy_arena_cap = env.decl_expr_base + 4000000;
                                 let mut la1: u64 = w1;
                                 let mut la2: u64 = w2;
@@ -1153,7 +1160,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                                     lai = lai + 1;
                                 }
                                 env.lazy_arena_cap = cap_saved;
-                                env.def_eq_gaveup = gaveup_saved;
+                                gaveup_isolate_end(env, gaveup_saved);
                                 if lazy_ok > 0 { return 1; }
                             }
                         }
@@ -1190,10 +1197,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                         if env.exprs.f1[head1] == env.exprs.f1[head2] {
                             if should_try_lazy_rxc_fallback(env, head1, w1, w2, n1) > 0 && is_levels_eq_at(env, head1, head2) > 0 {
                                 let cap_saved2: u64 = env.lazy_arena_cap;
-                                // See the matching comment on the first probe
-                                // above: isolate this probe's give-up state too.
-                                let gaveup_saved2: u64 = env.def_eq_gaveup;
-                                env.def_eq_gaveup = 0;
+                                let gaveup_saved2: u64 = gaveup_isolate_begin(env);
                                 env.lazy_arena_cap = env.decl_expr_base + 4000000;
                                 let mut fa1: u64 = w1;
                                 let mut fa2: u64 = w2;
@@ -1209,7 +1213,7 @@ fn is_def_eq_core(env: Environment, w1: u64, w2: u64) -> u64 {
                                     fbi = fbi + 1;
                                 }
                                 env.lazy_arena_cap = cap_saved2;
-                                env.def_eq_gaveup = gaveup_saved2;
+                                gaveup_isolate_end(env, gaveup_saved2);
                                 if fb_ok > 0 { return 1; }
                             }
                         }

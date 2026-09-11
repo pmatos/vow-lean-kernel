@@ -27,18 +27,19 @@ STACK_LIMIT=65536
 DIRS=()
 
 usage() {
-    echo "Usage: $0 [--checker PATH] [--mem-limit KB] [--tests-dir DIR]... [DIR]..."
+    echo "Usage: $0 [--checker PATH] [--mem-limit KB] [--stack-limit KB] [--tests-dir DIR]... [DIR]..."
     echo "  With no directories, runs tests/good and tests/bad."
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --checker)    CHECKER="$2"; shift 2 ;;
-        --mem-limit)  MEM_LIMIT="$2"; shift 2 ;;
-        --tests-dir)  DIRS+=("$2"); shift 2 ;;
-        -h|--help)    usage; exit 0 ;;
-        -*)           echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
-        *)            DIRS+=("$1"); shift ;;
+        --checker)     CHECKER="$2"; shift 2 ;;
+        --mem-limit)   MEM_LIMIT="$2"; shift 2 ;;
+        --stack-limit) STACK_LIMIT="$2"; shift 2 ;;
+        --tests-dir)   DIRS+=("$2"); shift 2 ;;
+        -h|--help)     usage; exit 0 ;;
+        -*)            echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *)             DIRS+=("$1"); shift ;;
     esac
 done
 

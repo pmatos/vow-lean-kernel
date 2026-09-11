@@ -198,45 +198,43 @@ fn whnf_depth_cap() -> u64 {
     return 200;
 }
 
-pub fn whnf_no_delta(env: Environment, expr: u64) -> u64 {
+// Enter whnf recursion: increments whnf_depth, tracks its high-water mark, and
+// reports (returns 1) whether the depth cap was exceeded. On a cap trip it
+// undoes the increment and sets def_eq_gaveup itself, so a caller that gets a
+// 1 back must simply return its `expr` argument un-reduced -- a caller that
+// gets 0 back must decrement whnf_depth itself once its own whnf_core call
+// returns. Conservative give-up: an un-reduced result is sound (a caller that
+// then judges two under-reduced terms "not equal" is not entitled to a
+// confident reject), it just isn't a decided answer -- def_eq_gaveup lets
+// check_decl_idx downgrade a reject reached this way to a sound decline
+// (mirrors the def_eq_depth/lazy_arena_cap give-up sites in def_eq.vow).
+fn whnf_depth_enter(env: Environment) -> u64 {
     env.whnf_depth = env.whnf_depth + 1;
     if env.whnf_depth > env.max_whnf_depth { env.max_whnf_depth = env.whnf_depth; }
     if env.whnf_depth > whnf_depth_cap() {
         env.whnf_depth = env.whnf_depth - 1;
-        // Conservative give-up: expr is returned un-reduced. A caller that
-        // then judges two under-reduced terms "not equal" is not entitled to
-        // a confident reject -- flag it so check_decl_idx downgrades to a
-        // sound decline instead (mirrors the def_eq_depth/lazy_arena_cap
-        // give-up sites in def_eq.vow).
         env.def_eq_gaveup = 1;
-        return expr;
+        return 1;
     }
+    return 0;
+}
+
+pub fn whnf_no_delta(env: Environment, expr: u64) -> u64 {
+    if whnf_depth_enter(env) > 0 { return expr; }
     let r: u64 = whnf_core(env, expr, 0);
     env.whnf_depth = env.whnf_depth - 1;
     return r;
 }
 
 pub fn whnf(env: Environment, expr: u64) -> u64 {
-    env.whnf_depth = env.whnf_depth + 1;
-    if env.whnf_depth > env.max_whnf_depth { env.max_whnf_depth = env.whnf_depth; }
-    if env.whnf_depth > whnf_depth_cap() {
-        env.whnf_depth = env.whnf_depth - 1;
-        env.def_eq_gaveup = 1;
-        return expr;
-    }
+    if whnf_depth_enter(env) > 0 { return expr; }
     let r: u64 = whnf_core(env, expr, 2);
     env.whnf_depth = env.whnf_depth - 1;
     return r;
 }
 
 pub fn whnf_abbrev(env: Environment, expr: u64) -> u64 {
-    env.whnf_depth = env.whnf_depth + 1;
-    if env.whnf_depth > env.max_whnf_depth { env.max_whnf_depth = env.whnf_depth; }
-    if env.whnf_depth > whnf_depth_cap() {
-        env.whnf_depth = env.whnf_depth - 1;
-        env.def_eq_gaveup = 1;
-        return expr;
-    }
+    if whnf_depth_enter(env) > 0 { return expr; }
     let r: u64 = whnf_core(env, expr, 1);
     env.whnf_depth = env.whnf_depth - 1;
     return r;
