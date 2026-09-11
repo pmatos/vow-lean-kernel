@@ -7,22 +7,24 @@ set -uo pipefail
 # invokes the checker (exit code = verdict) plus /usr/bin/time -v for metrics.
 #
 # Usage:
-#   arena/dry-run.sh [--checker PATH] [--mem-limit KB] [--out FILE] \
-#       <label>=<file.ndjson> [<label>=<file.ndjson> ...]
+#   arena/dry-run.sh [--checker PATH] [--mem-limit KB] [--stack-limit KB] \
+#       [--out FILE] <label>=<file.ndjson> [<label>=<file.ndjson> ...]
 
 CHECKER="./lean_checker"
 MEM_LIMIT=33554432         # 32 GiB, matches checker.yaml's run command
+STACK_LIMIT=65536          # 64 MiB, matches checker.yaml's run command (issue #78)
 OUT=""                     # markdown results file; default: stdout only
 LOGDIR="${TMPDIR:-/tmp}/lean-dry-run"
 
 args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --checker)   CHECKER="$2"; shift 2 ;;
-        --mem-limit) MEM_LIMIT="$2"; shift 2 ;;
-        --out)       OUT="$2"; shift 2 ;;
-        --logdir)    LOGDIR="$2"; shift 2 ;;
-        *)           args+=("$1"); shift ;;
+        --checker)     CHECKER="$2"; shift 2 ;;
+        --mem-limit)   MEM_LIMIT="$2"; shift 2 ;;
+        --stack-limit) STACK_LIMIT="$2"; shift 2 ;;
+        --out)         OUT="$2"; shift 2 ;;
+        --logdir)      LOGDIR="$2"; shift 2 ;;
+        *)             args+=("$1"); shift ;;
     esac
 done
 
@@ -50,7 +52,7 @@ for pair in "${args[@]}"; do
     safe="${label//\//_}"
     tlog="$LOGDIR/${safe}.time"; olog="$LOGDIR/${safe}.out"
 
-    ( ulimit -v "$MEM_LIMIT" && exec /usr/bin/time -v "$CHECKER" "$file" ) >"$olog" 2>"$tlog"
+    ( ulimit -v "$MEM_LIMIT" && ulimit -s "$STACK_LIMIT" && exec /usr/bin/time -v "$CHECKER" "$file" ) >"$olog" 2>"$tlog"
     rc=$?
 
     wall=$(grep -m1 -oP 'Elapsed \(wall clock\) time \(h:mm:ss or m:ss\): \K.*' "$tlog" 2>/dev/null || echo '?')

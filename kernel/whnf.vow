@@ -180,34 +180,61 @@ fn rebuild_apps_skip_range(env: Environment, head: u64, args: Vec<u64>, lo: u64,
     return rebuild_apps_range(env, head, args, lo, hi - skip);
 }
 
-pub fn whnf_no_delta(env: Environment, expr: u64) -> u64 {
+// Native-stack safety bound for the whnf/whnf_core recursion (issue #78).
+// whnf_depth is the ONLY counter guarding this recursion -- kernel_fuel is
+// charged elsewhere (is_def_eq_full/is_def_eq/infer) and does not bound a
+// single whnf() call's own internal depth, so a term that whnf's very deep
+// before returning can blow the native stack regardless of remaining fuel.
+// whnf_core is a large function (~750 lines with many live locals): gdb frame
+// measurements on a decl-19530 crash (issue #78, StackOverflow under a 2 MB
+// test stack) put a full whnf+whnf_core recursion step at ~15.7 KB of stack.
+// The previous cap of 1024 was therefore itself unsafe (1024 * 15.7 KB =~
+// 15.7 MB, i.e. already at the edge of a default 16 MB stack with zero
+// margin for the is_def_eq/infer frames that sit above it on the same call
+// chain in practice). 200 leaves ~3 MB for this recursion alone, safely
+// under even an 8 MB stack once combined with is_def_eq_full's own cap
+// (def_eq_depth_cap, kernel/def_eq.vow).
+fn whnf_depth_cap() -> u64 {
+    return 200;
+}
+
+// Enter whnf recursion: increments whnf_depth, tracks its high-water mark, and
+// reports (returns 1) whether the depth cap was exceeded. On a cap trip it
+// undoes the increment and sets def_eq_gaveup itself, so a caller that gets a
+// 1 back must simply return its `expr` argument un-reduced -- a caller that
+// gets 0 back must decrement whnf_depth itself once its own whnf_core call
+// returns. Conservative give-up: an un-reduced result is sound (a caller that
+// then judges two under-reduced terms "not equal" is not entitled to a
+// confident reject), it just isn't a decided answer -- def_eq_gaveup lets
+// check_decl_idx downgrade a reject reached this way to a sound decline
+// (mirrors the def_eq_depth/lazy_arena_cap give-up sites in def_eq.vow).
+fn whnf_depth_enter(env: Environment) -> u64 {
     env.whnf_depth = env.whnf_depth + 1;
-    if env.whnf_depth > 1024 {
+    if env.whnf_depth > env.max_whnf_depth { env.max_whnf_depth = env.whnf_depth; }
+    if env.whnf_depth > whnf_depth_cap() {
         env.whnf_depth = env.whnf_depth - 1;
-        return expr;
+        env.def_eq_gaveup = 1;
+        return 1;
     }
+    return 0;
+}
+
+pub fn whnf_no_delta(env: Environment, expr: u64) -> u64 {
+    if whnf_depth_enter(env) > 0 { return expr; }
     let r: u64 = whnf_core(env, expr, 0);
     env.whnf_depth = env.whnf_depth - 1;
     return r;
 }
 
 pub fn whnf(env: Environment, expr: u64) -> u64 {
-    env.whnf_depth = env.whnf_depth + 1;
-    if env.whnf_depth > 1024 {
-        env.whnf_depth = env.whnf_depth - 1;
-        return expr;
-    }
+    if whnf_depth_enter(env) > 0 { return expr; }
     let r: u64 = whnf_core(env, expr, 2);
     env.whnf_depth = env.whnf_depth - 1;
     return r;
 }
 
 pub fn whnf_abbrev(env: Environment, expr: u64) -> u64 {
-    env.whnf_depth = env.whnf_depth + 1;
-    if env.whnf_depth > 1024 {
-        env.whnf_depth = env.whnf_depth - 1;
-        return expr;
-    }
+    if whnf_depth_enter(env) > 0 { return expr; }
     let r: u64 = whnf_core(env, expr, 1);
     env.whnf_depth = env.whnf_depth - 1;
     return r;
@@ -1414,7 +1441,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                   let nf_p: u64 = env.ind_ctor_num_fields[cs_p];
                                   if nf_p > 0 {
                                     let minor_rev_p: u64 = num_args - 1 - np - nm;
-                                    let minor_w_p: u64 = whnf_core(env, env.exprs.scratch_args[arg_base + minor_rev_p], 2);
+                                    // Routed through the whnf_depth-counted wrapper (issue #78):
+                                    // a direct whnf_core call here would recurse without
+                                    // incrementing/checking whnf_depth, an uncounted path to
+                                    // the same native-stack risk the cap exists to bound.
+                                    let minor_w_p: u64 = whnf(env, env.exprs.scratch_args[arg_base + minor_rev_p]);
                                     let mut body_p: u64 = minor_w_p;
                                     let mut lc_p: u64 = 0;
                                     let mut lok_p: u64 = 1;
@@ -1427,7 +1458,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                                         } else { lok_p = 0; lc_p = nf_p; }
                                     }
                                     if lok_p > 0 {
-                                      let body_w_p: u64 = whnf_core(env, body_p, 0);
+                                      let body_w_p: u64 = whnf_no_delta(env, body_p);
                                       if body_w_p < (env.exprs.tags.len() as u64) {
                                         if env.exprs.tags[body_w_p] == 0 {
                                           let bv_p: u64 = env.exprs.f1[body_w_p];
@@ -1519,6 +1550,11 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
             return cur;
         }
     }
+    // Local reduction-step budget exhausted without converging (reduced was
+    // never 0): cur is under-reduced, the same conservative give-up as the
+    // depth caps above -- flag it (issue #78 review) so check_decl_idx can
+    // downgrade a reject reached this way to a sound decline.
+    env.def_eq_gaveup = 1;
     if do_delta > 0 && env.infer_ctx_types.len() == 0 && orig_expr < (env.exprs.cache.len() as u64) {
         expr_whnf_cache_set(env.exprs, orig_expr, cur);
     } else if do_delta > 0 && env.infer_ctx_types.len() > 0 {

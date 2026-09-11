@@ -6,7 +6,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 pass=0; fail=0
 for f in "$DIR"/*.ndjson; do
   name=$(basename "$f" .ndjson)
-  (ulimit -v 8388608 && "$CHECKER" "$f" >/dev/null 2>&1)
+  (ulimit -v 8388608 && ulimit -s 65536 && "$CHECKER" "$f" >/dev/null 2>&1)
   rc=$?
   if [ "$rc" = "0" ]; then
     pass=$((pass+1)); echo "PASS  $name (accept)"

@@ -18,21 +18,28 @@ CHECKER="./lean_checker"
 # Virtual-memory cap (KiB) applied per checker invocation. 8 GiB by default —
 # deeper proof terms need it (see CLAUDE.md); override with --mem-limit.
 MEM_LIMIT=8388608
+# Stack cap (KiB), matching arena/checker.yaml's production value. The
+# whnf/def_eq recursion-depth caps (issue #78) are sized for a >=8 MiB stack;
+# without setting this explicitly, CI/local runs inherit the host's own
+# default (which may be smaller) and would never actually exercise the margin
+# those caps assume.
+STACK_LIMIT=65536
 DIRS=()
 
 usage() {
-    echo "Usage: $0 [--checker PATH] [--mem-limit KB] [--tests-dir DIR]... [DIR]..."
+    echo "Usage: $0 [--checker PATH] [--mem-limit KB] [--stack-limit KB] [--tests-dir DIR]... [DIR]..."
     echo "  With no directories, runs tests/good and tests/bad."
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --checker)    CHECKER="$2"; shift 2 ;;
-        --mem-limit)  MEM_LIMIT="$2"; shift 2 ;;
-        --tests-dir)  DIRS+=("$2"); shift 2 ;;
-        -h|--help)    usage; exit 0 ;;
-        -*)           echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
-        *)            DIRS+=("$1"); shift ;;
+        --checker)     CHECKER="$2"; shift 2 ;;
+        --mem-limit)   MEM_LIMIT="$2"; shift 2 ;;
+        --stack-limit) STACK_LIMIT="$2"; shift 2 ;;
+        --tests-dir)   DIRS+=("$2"); shift 2 ;;
+        -h|--help)     usage; exit 0 ;;
+        -*)            echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+        *)             DIRS+=("$1"); shift ;;
     esac
 done
 
@@ -81,7 +88,7 @@ for dir in "${DIRS[@]}"; do
         esac
 
         set +e
-        ( ulimit -v "$MEM_LIMIT" && "$CHECKER" "$ndjson" >/dev/null 2>&1 )
+        ( ulimit -v "$MEM_LIMIT" && ulimit -s "$STACK_LIMIT" && "$CHECKER" "$ndjson" >/dev/null 2>&1 )
         rc=$?
         set -e
 

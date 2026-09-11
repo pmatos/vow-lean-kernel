@@ -489,12 +489,14 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
         res = 0;
     }
     // A reject reached after the per-decl allocation ceiling tripped (issue #59)
+    // or a native-stack recursion-depth cap gave up (issue #78: def_eq_gaveup,
+    // set by whnf_depth_cap / def_eq_depth_cap / the lazy-probe arena ceiling)
     // is unreliable: reduction was cut short, so the def_eq that returned "not
     // equal" may simply not have reduced far enough. Downgrade it to a graceful
     // decline (the checker is never worse than Lean, which cannot reduce the
     // runaway either). An accept survives untouched — under-reduction only loses
     // matches, it never manufactures one, so a surviving accept is still sound.
-    if env.alloc_tripped > 0 && res == 1 {
+    if (env.alloc_tripped > 0 || env.def_eq_gaveup > 0) && res == 1 {
         return 2;
     }
     return res;

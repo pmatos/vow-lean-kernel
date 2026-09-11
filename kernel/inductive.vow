@@ -39,7 +39,20 @@ fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices:
 }
 
 fn check_strict_positive(env: Environment, field_ty: u64, ind_name: u64) -> u64 {
+    // Isolate whether THIS whnf call gave up (issue #78 review): whnf_depth_cap
+    // makes a conservative, under-reduced result materially more likely than
+    // before, and treating an under-reduced non-Pi shape as "no violation
+    // possible" would be a silent false accept -- the worst class of bug for a
+    // proof checker. Saved/restored like the lazy-congruence probes' own
+    // isolation of def_eq_gaveup, so an unrelated give-up elsewhere in this
+    // declaration doesn't spuriously affect this check either.
+    let gaveup_saved: u64 = env.def_eq_gaveup;
+    env.def_eq_gaveup = 0;
     let w: u64 = whnf(env, field_ty);
+    let this_gaveup: u64 = env.def_eq_gaveup;
+    if this_gaveup == 0 {
+        env.def_eq_gaveup = gaveup_saved;
+    }
     if w >= (env.exprs.tags.len() as u64) { return 1; }
     if env.exprs.tags[w] == 5 {
         let domain: u64 = env.exprs.f2[w];
@@ -52,6 +65,12 @@ fn check_strict_positive(env: Environment, field_ty: u64, ind_name: u64) -> u64 
         let body: u64 = instantiate(env, env.exprs.f3[w], local_expr);
         return check_strict_positive(env, body, ind_name);
     }
+    // whnf did not reveal a Pi. If it gave up rather than genuinely settling
+    // on a non-Pi shape, treat as a violation instead of silently accepting a
+    // field whose true shape is unknown -- def_eq_gaveup stays set (not
+    // restored above), so the resulting reject is downgraded to a sound
+    // decline, never a false accept.
+    if this_gaveup > 0 { return 0; }
     return 1;
 }
 
