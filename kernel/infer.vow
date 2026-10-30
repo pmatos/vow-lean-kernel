@@ -103,11 +103,7 @@ fn infer_const(env: Environment, expr: u64) -> u64 {
     // even when it is declared later in the file or is the declaration being
     // checked. Only a constructor, recursor or inductive group may mention
     // its own inductive; anything else must refer to an earlier declaration.
-    if lookup.idx > env.current_decl_idx {
-        env.forward_ref_violation = 1;
-        return err_val();
-    }
-    if lookup.idx == env.current_decl_idx && env.decl_kinds[lookup.idx] != 5 {
+    if lookup.idx > env.current_decl_idx || (lookup.idx == env.current_decl_idx && env.decl_kinds[lookup.idx] != 5) {
         env.forward_ref_violation = 1;
         return err_val();
     }
@@ -458,9 +454,9 @@ fn quot_const(env: Environment, name: u64, lvl: u64) -> u64 {
     return expr_add_const(env.exprs, name, lvls);
 }
 
-// The relation type `a b : (#k) -> Prop` as seen where the carrier is bvar k.
-fn quot_rel(env: Environment, k: u64, prop: u64) -> u64 {
-    return quot_pi(env, expr_add_bvar(env.exprs, k), quot_pi(env, expr_add_bvar(env.exprs, k + 1), prop));
+// The relation type `a b : #0 -> Prop` over the innermost carrier.
+fn quot_rel(env: Environment, prop: u64) -> u64 {
+    return quot_pi(env, expr_add_bvar(env.exprs, 0), quot_pi(env, expr_add_bvar(env.exprs, 1), prop));
 }
 
 // Canonical type of Quot, Quot.mk, Quot.lift or Quot.ind (qk 0..3), built the
@@ -473,16 +469,13 @@ fn quot_expected_type(env: Environment, qk: u64, u: u64, v: u64) -> u64 {
     let b2: u64 = expr_add_bvar(env.exprs, 2);
     let b3: u64 = expr_add_bvar(env.exprs, 3);
     let b4: u64 = expr_add_bvar(env.exprs, 4);
-    let b5: u64 = expr_add_bvar(env.exprs, 5);
-    let b6: u64 = expr_add_bvar(env.exprs, 6);
-    let quot: u64 = quot_const(env, env.name_quot, u);
-    let quot_mk: u64 = quot_const(env, env.name_quot_mk, u);
     if qk == 0 {
-        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), sort_u));
+        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, prop), sort_u));
     }
+    let quot: u64 = quot_const(env, env.name_quot, u);
     if qk == 1 {
         let quot_ar: u64 = quot_app2(env, quot, b2, b1);
-        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), quot_pi(env, b1, quot_ar)));
+        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, prop), quot_pi(env, b1, quot_ar)));
     }
     if qk == 2 {
         let sort_v: u64 = expr_add_sort(env.exprs, v);
@@ -492,13 +485,14 @@ fn quot_expected_type(env: Environment, qk: u64, u: u64, v: u64) -> u64 {
         let h: u64 = quot_pi(env, b3, quot_pi(env, b4, quot_pi(env, r_ab, eq_fa_fb)));
         let f: u64 = quot_pi(env, b2, b1);
         let q: u64 = quot_app2(env, quot, b4, b3);
-        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), quot_pi(env, sort_v, quot_pi(env, f, quot_pi(env, h, quot_pi(env, q, b3))))));
+        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, prop), quot_pi(env, sort_v, quot_pi(env, f, quot_pi(env, h, quot_pi(env, q, b3))))));
     }
+    let quot_mk: u64 = quot_const(env, env.name_quot_mk, u);
     let beta_dom: u64 = quot_pi(env, quot_app2(env, quot, b1, b0), prop);
     let mk_a: u64 = expr_add_app(env.exprs, b1, expr_add_app(env.exprs, quot_app2(env, quot_mk, b3, b2), b0));
     let mk: u64 = quot_pi(env, b2, mk_a);
     let q: u64 = quot_app2(env, quot, b3, b2);
-    return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), quot_pi(env, beta_dom, quot_pi(env, mk, quot_pi(env, q, expr_add_app(env.exprs, b2, b0))))));
+    return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, prop), quot_pi(env, beta_dom, quot_pi(env, mk, quot_pi(env, q, expr_add_app(env.exprs, b2, b0))))));
 }
 
 fn quot_dep_earlier(env: Environment, name: u64, kind: u64, di: u64) -> u64 {
@@ -523,15 +517,10 @@ fn check_quot(env: Environment, di: u64) -> u64 {
     if qk == 3 { want_name = env.name_quot_ind; }
     if name != want_name { return 1; }
     if (lps.len() as u64) != want_lps { return 1; }
-    let eq: DeclLookup = env_lookup_name(env, env.name_eq);
-    if eq.found == 0 || eq.kind != 5 || eq.idx >= di { return 1; }
-    if (env.decl_lps[eq.idx].len() as u64) != 1 { return 1; }
-    if qk >= 1 {
-        if quot_dep_earlier(env, env.name_quot, 4, di) == 0 { return 1; }
-    }
-    if qk == 3 {
-        if quot_dep_earlier(env, env.name_quot_mk, 4, di) == 0 { return 1; }
-    }
+    if quot_dep_earlier(env, env.name_eq, 5, di) == 0 { return 1; }
+    if (env.decl_lps[env_lookup_name(env, env.name_eq).idx].len() as u64) != 1 { return 1; }
+    if qk >= 1 && quot_dep_earlier(env, env.name_quot, 4, di) == 0 { return 1; }
+    if qk == 3 && quot_dep_earlier(env, env.name_quot_mk, 4, di) == 0 { return 1; }
     let u: u64 = level_add_param(env.levels, lps[0]);
     let mut v: u64 = u;
     if qk == 2 { v = level_add_param(env.levels, lps[1]); }
@@ -600,6 +589,9 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
     } else if kind == 6 || kind == 7 {
         res = 0;
     }
+    if env.forward_ref_violation > 0 {
+        return 1;
+    }
     // A reject reached after the per-decl allocation ceiling tripped (issue #59)
     // or a native-stack recursion-depth cap gave up (issue #78: def_eq_gaveup,
     // set by whnf_depth_cap / def_eq_depth_cap / the lazy-probe arena ceiling)
@@ -608,9 +600,6 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
     // decline (the checker is never worse than Lean, which cannot reduce the
     // runaway either). An accept survives untouched — under-reduction only loses
     // matches, it never manufactures one, so a surviving accept is still sound.
-    if env.forward_ref_violation > 0 {
-        return 1;
-    }
     if (env.alloc_tripped > 0 || env.def_eq_gaveup > 0) && res == 1 {
         return 2;
     }

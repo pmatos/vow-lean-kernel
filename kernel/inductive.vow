@@ -89,7 +89,7 @@ fn elim_only_at_zero(env: Environment, ind_sort_level: u64, type_count: u64, rec
     return 1;
 }
 
-fn same_level_params(env: Environment, rec_lps: Vec<u64>, offset: u64, ind_lps: Vec<u64>) -> u64 {
+fn same_level_params(rec_lps: Vec<u64>, offset: u64, ind_lps: Vec<u64>) -> u64 {
     let mut i: u64 = 0;
     while i < (ind_lps.len() as u64) {
         if rec_lps[offset + i] != ind_lps[i] { return 0; }
@@ -127,19 +127,16 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
     if lk.found == 0 || lk.kind != 7 { return 1; }
     let rec_lps: Vec<u64> = env.decl_lps[lk.idx];
     let ind_lps: Vec<u64> = env.ind_type_lps[type_start];
+    if (rec_lps.len() as u64) != (ind_lps.len() as u64) + large { return 1; }
+    if same_level_params(rec_lps, large, ind_lps) == 0 { return 1; }
     let mut elim_param: u64 = 0;
     if large > 0 {
-        if (rec_lps.len() as u64) != (ind_lps.len() as u64) + 1 { return 1; }
-        if same_level_params(env, rec_lps, 1, ind_lps) == 0 { return 1; }
         elim_param = rec_lps[0];
         let mut k: u64 = 0;
         while k < (ind_lps.len() as u64) {
             if ind_lps[k] == elim_param { return 1; }
             k = k + 1;
         }
-    } else {
-        if (rec_lps.len() as u64) != (ind_lps.len() as u64) { return 1; }
-        if same_level_params(env, rec_lps, 0, ind_lps) == 0 { return 1; }
     }
 
     let np: u64 = env.rec_num_params[ridx];
@@ -149,15 +146,18 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
     if nm != rec_count { return 1; }
     if nmin < ctor_count { return 1; }
 
+    let mut is_primary: u64 = 0;
+    if nd.field_str.len() == 3 { is_primary = 1; }
+    let total: u64 = np + nm + nmin + ni + 1;
     let mut cur: u64 = env.rec_tys[ridx];
     let mut pos: u64 = 0;
-    while pos < np + nm + nmin + ni + 1 {
+    while pos < total {
         if cur >= exprs_len(env) || env.exprs.tags[cur] != 5 { return 1; }
         let domain: u64 = env.exprs.f2[cur];
         if pos >= np && pos < np + nm {
             if motive_sort_ok(env, domain, large, elim_param) == 0 { return 1; }
         }
-        if pos == np + nm + nmin + ni {
+        if pos == total - 1 {
             let mut dhead: u64 = domain;
             let mut dargs: u64 = 0;
             while dhead < exprs_len(env) && env.exprs.tags[dhead] == 3 {
@@ -165,7 +165,7 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
                 dhead = env.exprs.f1[dhead];
             }
             if dhead >= exprs_len(env) || env.exprs.tags[dhead] != 2 { return 1; }
-            if nd.field_str.len() == 3 {
+            if is_primary > 0 {
                 if env.exprs.f1[dhead] != nd.parent { return 1; }
                 if dargs != np + ni { return 1; }
             }
@@ -174,7 +174,6 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
         pos = pos + 1;
     }
 
-    let total: u64 = np + nm + nmin + ni + 1;
     let mut head: u64 = cur;
     let mut nargs: u64 = 0;
     let mut last_arg: u64 = 0;
@@ -191,7 +190,7 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
     if nargs != ni + 1 { return 1; }
     if last_arg >= exprs_len(env) || env.exprs.tags[last_arg] != 0 || env.exprs.f1[last_arg] != 0 { return 1; }
 
-    if nd.field_str.len() == 3 {
+    if is_primary > 0 {
         let mut ctors_of_type: u64 = 0;
         let mut ci: u64 = 0;
         while ci < ctor_count {
@@ -517,28 +516,15 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
     let ctor_start: u64 = env.ind_ctor_start[ind_idx];
     let ctor_count: u64 = env.ind_ctor_count[ind_idx];
 
-    let ctor_start0: u64 = env.ind_ctor_start[ind_idx];
-    let ctor_count0: u64 = env.ind_ctor_count[ind_idx];
-    let rec_start0: u64 = env.ind_rec_start[ind_idx];
-    let rec_count0: u64 = env.ind_rec_count[ind_idx];
+    let group_rec_start: u64 = env.ind_rec_start[ind_idx];
+    let group_rec_count: u64 = env.ind_rec_count[ind_idx];
     let mut oc: u64 = 0;
-    while oc < ctor_count0 {
-        if ind_type_known(env, type_start, type_count, env.ind_ctor_inducts[ctor_start0 + oc]) == 0 { return 1; }
+    while oc < ctor_count {
+        if ind_type_known(env, type_start, type_count, env.ind_ctor_inducts[ctor_start + oc]) == 0 { return 1; }
         oc = oc + 1;
     }
-    if type_count > 0 {
-        let lead_level: u64 = check_inductive_type(env, env.ind_type_tys[type_start], env.ind_type_num_params[type_start], env.ind_type_num_indices[type_start]);
-        if is_err(lead_level) > 0 { return 1; }
-        let only_zero: u64 = elim_only_at_zero(env, lead_level, type_count, rec_count0, ctor_start0, ctor_count0);
-        let mut large: u64 = 1;
-        if only_zero > 0 { large = 0; }
-        let mut gr: u64 = 0;
-        while gr < rec_count0 {
-            if check_recursor_shape(env, rec_start0 + gr, type_start, type_count, rec_count0, ctor_start0, ctor_count0, large) > 0 { return 1; }
-            gr = gr + 1;
-        }
-    }
 
+    let mut lead_level: u64 = 0;
     let mut ti: u64 = 0;
     while ti < type_count {
         let tidx: u64 = type_start + ti;
@@ -550,6 +536,7 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
 
         let ind_sort_level: u64 = check_inductive_type(env, it_ty, it_num_params, it_num_indices);
         if is_err(ind_sort_level) > 0 { return 1; }
+        if ti == 0 { lead_level = ind_sort_level; }
 
         let mut ci: u64 = 0;
         while ci < ctor_count {
@@ -654,6 +641,15 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
         }
 
         ti = ti + 1;
+    }
+
+    if type_count > 0 {
+        let allows_large: u64 = 1 - elim_only_at_zero(env, lead_level, type_count, group_rec_count, ctor_start, ctor_count);
+        let mut gr: u64 = 0;
+        while gr < group_rec_count {
+            if check_recursor_shape(env, group_rec_start + gr, type_start, type_count, group_rec_count, ctor_start, ctor_count, allows_large) > 0 { return 1; }
+            gr = gr + 1;
+        }
     }
     return 0;
 }
