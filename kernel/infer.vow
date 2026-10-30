@@ -99,6 +99,18 @@ fn infer_const(env: Environment, expr: u64) -> u64 {
     if lookup.found == 0 {
         return err_val();
     }
+    // The whole export is loaded before checking starts, so a name resolves
+    // even when it is declared later in the file or is the declaration being
+    // checked. Only a constructor, recursor or inductive group may mention
+    // its own inductive; anything else must refer to an earlier declaration.
+    if lookup.idx > env.current_decl_idx {
+        env.forward_ref_violation = 1;
+        return err_val();
+    }
+    if lookup.idx == env.current_decl_idx && env.decl_kinds[lookup.idx] != 5 {
+        env.forward_ref_violation = 1;
+        return err_val();
+    }
     let level_count: u64 = expr_level_count(env.exprs, expr);
     if level_count != (env.decl_lps[lookup.idx].len() as u64) {
         return err_val();
@@ -459,6 +471,8 @@ fn check_theorem(env: Environment, ty: u64, val: u64) -> u64 {
 }
 
 pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
+    env.current_decl_idx = di;
+    env.forward_ref_violation = 0;
     let lps: Vec<u64> = env.decl_lps[di];
     let mut pi: u64 = 0;
     while pi < (lps.len() as u64) {
@@ -496,6 +510,9 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
     // decline (the checker is never worse than Lean, which cannot reduce the
     // runaway either). An accept survives untouched — under-reduction only loses
     // matches, it never manufactures one, so a surviving accept is still sound.
+    if env.forward_ref_violation > 0 {
+        return 1;
+    }
     if (env.alloc_tripped > 0 || env.def_eq_gaveup > 0) && res == 1 {
         return 2;
     }
