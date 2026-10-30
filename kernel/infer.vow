@@ -444,6 +444,102 @@ fn check_def(env: Environment, di: u64, ty: u64, val: u64) -> u64 {
     return 0;
 }
 
+fn quot_pi(env: Environment, dom: u64, body: u64) -> u64 {
+    return expr_add_forall(env.exprs, 0, dom, body, 0);
+}
+
+fn quot_app2(env: Environment, f: u64, a: u64, b: u64) -> u64 {
+    return expr_add_app(env.exprs, expr_add_app(env.exprs, f, a), b);
+}
+
+fn quot_const(env: Environment, name: u64, lvl: u64) -> u64 {
+    let lvls: Vec<u64> = Vec::new();
+    lvls.push(lvl);
+    return expr_add_const(env.exprs, name, lvls);
+}
+
+// The relation type `a b : (#k) -> Prop` as seen where the carrier is bvar k.
+fn quot_rel(env: Environment, k: u64, prop: u64) -> u64 {
+    return quot_pi(env, expr_add_bvar(env.exprs, k), quot_pi(env, expr_add_bvar(env.exprs, k + 1), prop));
+}
+
+// Canonical type of Quot, Quot.mk, Quot.lift or Quot.ind (qk 0..3), built the
+// way Lean's own quotient declaration builds it.
+fn quot_expected_type(env: Environment, qk: u64, u: u64, v: u64) -> u64 {
+    let prop: u64 = expr_add_sort(env.exprs, level_add_zero(env.levels));
+    let sort_u: u64 = expr_add_sort(env.exprs, u);
+    let b0: u64 = expr_add_bvar(env.exprs, 0);
+    let b1: u64 = expr_add_bvar(env.exprs, 1);
+    let b2: u64 = expr_add_bvar(env.exprs, 2);
+    let b3: u64 = expr_add_bvar(env.exprs, 3);
+    let b4: u64 = expr_add_bvar(env.exprs, 4);
+    let b5: u64 = expr_add_bvar(env.exprs, 5);
+    let b6: u64 = expr_add_bvar(env.exprs, 6);
+    let quot: u64 = quot_const(env, env.name_quot, u);
+    let quot_mk: u64 = quot_const(env, env.name_quot_mk, u);
+    if qk == 0 {
+        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), sort_u));
+    }
+    if qk == 1 {
+        let quot_ar: u64 = quot_app2(env, quot, b2, b1);
+        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), quot_pi(env, b1, quot_ar)));
+    }
+    if qk == 2 {
+        let sort_v: u64 = expr_add_sort(env.exprs, v);
+        let eq: u64 = quot_const(env, env.name_eq, v);
+        let eq_fa_fb: u64 = expr_add_app(env.exprs, quot_app2(env, eq, b4, expr_add_app(env.exprs, b3, b2)), expr_add_app(env.exprs, b3, b1));
+        let r_ab: u64 = quot_app2(env, b4, b1, b0);
+        let h: u64 = quot_pi(env, b3, quot_pi(env, b4, quot_pi(env, r_ab, eq_fa_fb)));
+        let f: u64 = quot_pi(env, b2, b1);
+        let q: u64 = quot_app2(env, quot, b4, b3);
+        return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), quot_pi(env, sort_v, quot_pi(env, f, quot_pi(env, h, quot_pi(env, q, b3))))));
+    }
+    let beta_dom: u64 = quot_pi(env, quot_app2(env, quot, b1, b0), prop);
+    let mk_a: u64 = expr_add_app(env.exprs, b1, expr_add_app(env.exprs, quot_app2(env, quot_mk, b3, b2), b0));
+    let mk: u64 = quot_pi(env, b2, mk_a);
+    let q: u64 = quot_app2(env, quot, b3, b2);
+    return quot_pi(env, sort_u, quot_pi(env, quot_rel(env, 0, prop), quot_pi(env, beta_dom, quot_pi(env, mk, quot_pi(env, q, expr_add_app(env.exprs, b2, b0))))));
+}
+
+fn quot_dep_earlier(env: Environment, name: u64, kind: u64, di: u64) -> u64 {
+    let lk: DeclLookup = env_lookup_name(env, name);
+    if lk.found == 0 { return 0; }
+    if lk.kind != kind { return 0; }
+    if lk.idx >= di { return 0; }
+    return 1;
+}
+
+// Quot, Quot.mk, Quot.lift and Quot.ind are fixed by the kernel: the exported
+// declaration must have exactly that name and type, and must only depend on
+// the real Eq and on the other quotient declarations that precede it.
+fn check_quot(env: Environment, di: u64) -> u64 {
+    let qk: u64 = env.decl_vals[di];
+    let name: u64 = env.decl_name_ids[di];
+    let lps: Vec<u64> = env.decl_lps[di];
+    let mut want_name: u64 = env.name_quot;
+    let mut want_lps: u64 = 1;
+    if qk == 1 { want_name = env.name_quot_mk; }
+    if qk == 2 { want_name = env.name_quot_lift; want_lps = 2; }
+    if qk == 3 { want_name = env.name_quot_ind; }
+    if name != want_name { return 1; }
+    if (lps.len() as u64) != want_lps { return 1; }
+    let eq: DeclLookup = env_lookup_name(env, env.name_eq);
+    if eq.found == 0 || eq.kind != 5 || eq.idx >= di { return 1; }
+    if (env.decl_lps[eq.idx].len() as u64) != 1 { return 1; }
+    if qk >= 1 {
+        if quot_dep_earlier(env, env.name_quot, 4, di) == 0 { return 1; }
+    }
+    if qk == 3 {
+        if quot_dep_earlier(env, env.name_quot_mk, 4, di) == 0 { return 1; }
+    }
+    let u: u64 = level_add_param(env.levels, lps[0]);
+    let mut v: u64 = u;
+    if qk == 2 { v = level_add_param(env.levels, lps[1]); }
+    let expected: u64 = quot_expected_type(env, qk, u, v);
+    if is_def_eq(env, env.decl_tys[di], expected) == 0 { return 1; }
+    return 0;
+}
+
 fn check_axiom(env: Environment, ty: u64) -> u64 {
     let ty_sort: u64 = ensure_sort(env, infer(env, ty));
     if is_err(ty_sort) > 0 {
@@ -499,7 +595,9 @@ pub fn check_decl_idx(env: Environment, di: u64) -> u64 {
         res = check_theorem(env, ty, val);
     } else if kind == 5 {
         res = check_inductive(env, di);
-    } else if kind == 4 || kind == 6 || kind == 7 {
+    } else if kind == 4 {
+        res = check_quot(env, di);
+    } else if kind == 6 || kind == 7 {
         res = 0;
     }
     // A reject reached after the per-decl allocation ceiling tripped (issue #59)
