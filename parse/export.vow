@@ -48,14 +48,14 @@ fn parse_binder_info(s: String, pos: u64) -> u64 {
 
 fn parse_def_hints(s: String, pos: u64) -> DefHint {
     let p: u64 = skip_ws(s, pos);
-    if p < (s.len() as u64) && s.byte_at(p as i64) == 34 {
+    if p < (s.len() as u64) && s.byte_at((p as i64) as u64) == 34 {
         let r: ParseStrResult = json_parse_string(s, p);
         if r.val.eq("abbrev") {
             return DefHint::Abbrev;
         }
         return DefHint::Opaque;
     }
-    if p < (s.len() as u64) && s.byte_at(p as i64) == 123 {
+    if p < (s.len() as u64) && s.byte_at((p as i64) as u64) == 123 {
         match json_find_key(s, p, "regular") {
             Option::Some(reg_pos) => {
                 let height: u64 = json_parse_uint(s, reg_pos).val;
@@ -321,7 +321,7 @@ fn parse_def_decl(env: Environment, line: String) -> bool {
     let mut def_height: u64 = 0;
     let hints_pos2: u64 = unwrap_pos(json_find_key(line, def_pos, "hints"));
     let hp: u64 = skip_ws(line, hints_pos2);
-    if hp < (line.len() as u64) && line.byte_at(hp as i64) == 123 {
+    if hp < (line.len() as u64) && line.byte_at((hp as i64) as u64) == 123 {
         match json_find_key(line, hp, "regular") {
             Option::Some(reg_p) => { def_height = json_parse_uint(line, reg_p).val; },
             Option::None => {},

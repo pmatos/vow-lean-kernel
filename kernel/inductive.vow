@@ -9,6 +9,199 @@ use kernel.whnf
 use kernel.def_eq
 use kernel.infer
 
+fn level_never_zero(env: Environment, level: u64) -> u64 {
+    let t: u64 = env.levels.tags[level];
+    if t == 1 { return 1; }
+    if t == 2 {
+        if level_never_zero(env, env.levels.f1[level]) > 0 { return 1; }
+        return level_never_zero(env, env.levels.f2[level]);
+    }
+    if t == 3 {
+        return level_never_zero(env, env.levels.f2[level]);
+    }
+    return 0;
+}
+
+fn exprs_len(env: Environment) -> u64 {
+    return env.exprs.tags.len() as u64;
+}
+
+fn ind_type_known(env: Environment, type_start: u64, type_count: u64, name: u64) -> u64 {
+    let mut ti: u64 = 0;
+    while ti < type_count {
+        if env.ind_type_names[type_start + ti] == name { return 1; }
+        ti = ti + 1;
+    }
+    return 0;
+}
+
+// A constructor of a Prop-valued inductive with a single constructor still
+// allows large elimination when every field outside Prop appears as an index
+// of the constructor's result type (the "syntactic subsingleton" rule).
+fn single_ctor_allows_large_elim(env: Environment, cidx: u64) -> u64 {
+    let mut cty: u64 = env.ind_ctor_tys[cidx];
+    let num_params: u64 = env.ind_ctor_num_params[cidx];
+    let to_check: Vec<u64> = Vec::new();
+    let mut i: u64 = 0;
+    while cty < exprs_len(env) && env.exprs.tags[cty] == 5 {
+        let domain: u64 = env.exprs.f2[cty];
+        let local_id: u64 = env.next_local_id;
+        env.next_local_id = env.next_local_id + 1;
+        let local_expr: u64 = expr_add_local(env.exprs, local_id, domain);
+        if i >= num_params {
+            let sort: u64 = ensure_sort(env, infer(env, domain));
+            if is_err(sort) > 0 { return 0; }
+            if is_level_zero(env, sort) == 0 {
+                to_check.push(local_expr);
+            }
+        }
+        cty = instantiate(env, env.exprs.f3[cty], local_expr);
+        i = i + 1;
+    }
+    let result_args: Vec<u64> = Vec::new();
+    let mut head: u64 = cty;
+    while head < exprs_len(env) && env.exprs.tags[head] == 3 {
+        result_args.push(env.exprs.f2[head]);
+        head = env.exprs.f1[head];
+    }
+    let mut ci: u64 = 0;
+    while ci < (to_check.len() as u64) {
+        let mut found: u64 = 0;
+        let mut ai: u64 = 0;
+        while ai < (result_args.len() as u64) {
+            if result_args[ai] == to_check[ci] { found = 1; }
+            ai = ai + 1;
+        }
+        if found == 0 { return 0; }
+        ci = ci + 1;
+    }
+    return 1;
+}
+
+// Lean's `elim_only_at_universe_zero`: may the recursors of this block only
+// eliminate into Prop?
+fn elim_only_at_zero(env: Environment, ind_sort_level: u64, type_count: u64, rec_count: u64, ctor_start: u64, ctor_count: u64) -> u64 {
+    if level_never_zero(env, ind_sort_level) > 0 { return 0; }
+    if type_count > 1 || rec_count > type_count { return 1; }
+    if ctor_count > 1 { return 1; }
+    if ctor_count == 0 { return 0; }
+    if single_ctor_allows_large_elim(env, ctor_start) > 0 { return 0; }
+    return 1;
+}
+
+fn same_level_params(rec_lps: Vec<u64>, offset: u64, ind_lps: Vec<u64>) -> u64 {
+    let mut i: u64 = 0;
+    while i < (ind_lps.len() as u64) {
+        if rec_lps[offset + i] != ind_lps[i] { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// The sort a motive ends in must be Prop for a Prop-only block and the
+// recursor's own extra universe parameter otherwise.
+fn motive_sort_ok(env: Environment, motive_ty: u64, large: u64, elim_param: u64) -> u64 {
+    let mut cur: u64 = motive_ty;
+    while cur < exprs_len(env) && env.exprs.tags[cur] == 5 {
+        cur = env.exprs.f3[cur];
+    }
+    if cur >= exprs_len(env) || env.exprs.tags[cur] != 1 { return 0; }
+    let level: u64 = env.exprs.f1[cur];
+    if large == 0 { return is_level_zero(env, level); }
+    if env.levels.tags[level] != 4 { return 0; }
+    if env.levels.f1[level] != elim_param { return 0; }
+    return 1;
+}
+
+// Shape and universe checks on a recursor the export hands us. The recursor
+// type is not re-derived; instead it must have the telescope
+//   params, motives, minors, indices, major -> motive indices major
+// with the elimination universe the inductive's own sort permits.
+fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count: u64, rec_count: u64, ctor_start: u64, ctor_count: u64, large: u64) -> u64 {
+    let rec_name: u64 = env.rec_names[ridx];
+    let nd: NameData = name_arena_get(env.names, rec_name);
+    if nd.tag != 1 { return 1; }
+    if ind_type_known(env, type_start, type_count, nd.parent) == 0 { return 1; }
+
+    let lk: DeclLookup = env_lookup_name(env, rec_name);
+    if lk.found == 0 || lk.kind != 7 { return 1; }
+    let rec_lps: Vec<u64> = env.decl_lps[lk.idx];
+    let ind_lps: Vec<u64> = env.ind_type_lps[type_start];
+    if (rec_lps.len() as u64) != (ind_lps.len() as u64) + large { return 1; }
+    if same_level_params(rec_lps, large, ind_lps) == 0 { return 1; }
+    let mut elim_param: u64 = 0;
+    if large > 0 {
+        elim_param = rec_lps[0];
+        let mut k: u64 = 0;
+        while k < (ind_lps.len() as u64) {
+            if ind_lps[k] == elim_param { return 1; }
+            k = k + 1;
+        }
+    }
+
+    let np: u64 = env.rec_num_params[ridx];
+    let nm: u64 = env.rec_num_motives[ridx];
+    let nmin: u64 = env.rec_num_minors[ridx];
+    let ni: u64 = env.rec_num_indices[ridx];
+    if nm != rec_count { return 1; }
+    if nmin < ctor_count { return 1; }
+
+    let mut is_primary: u64 = 0;
+    if nd.field_str.len() == 3 { is_primary = 1; }
+    let total: u64 = np + nm + nmin + ni + 1;
+    let mut cur: u64 = env.rec_tys[ridx];
+    let mut pos: u64 = 0;
+    while pos < total {
+        if cur >= exprs_len(env) || env.exprs.tags[cur] != 5 { return 1; }
+        let domain: u64 = env.exprs.f2[cur];
+        if pos >= np && pos < np + nm {
+            if motive_sort_ok(env, domain, large, elim_param) == 0 { return 1; }
+        }
+        if pos == total - 1 {
+            let mut dhead: u64 = domain;
+            let mut dargs: u64 = 0;
+            while dhead < exprs_len(env) && env.exprs.tags[dhead] == 3 {
+                dargs = dargs + 1;
+                dhead = env.exprs.f1[dhead];
+            }
+            if dhead >= exprs_len(env) || env.exprs.tags[dhead] != 2 { return 1; }
+            if is_primary > 0 {
+                if env.exprs.f1[dhead] != nd.parent { return 1; }
+                if dargs != np + ni { return 1; }
+            }
+        }
+        cur = env.exprs.f3[cur];
+        pos = pos + 1;
+    }
+
+    let mut head: u64 = cur;
+    let mut nargs: u64 = 0;
+    let mut last_arg: u64 = 0;
+    while head < exprs_len(env) && env.exprs.tags[head] == 3 {
+        if nargs == 0 { last_arg = env.exprs.f2[head]; }
+        nargs = nargs + 1;
+        head = env.exprs.f1[head];
+    }
+    if head >= exprs_len(env) || env.exprs.tags[head] != 0 { return 1; }
+    let motive_var: u64 = env.exprs.f1[head];
+    if motive_var + np + 1 > total { return 1; }
+    let motive_pos: u64 = total - 1 - motive_var;
+    if motive_pos < np || motive_pos >= np + nm { return 1; }
+    if nargs != ni + 1 { return 1; }
+    if last_arg >= exprs_len(env) || env.exprs.tags[last_arg] != 0 || env.exprs.f1[last_arg] != 0 { return 1; }
+
+    if is_primary > 0 {
+        let mut ctors_of_type: u64 = 0;
+        let mut ci: u64 = 0;
+        while ci < ctor_count {
+            if env.ind_ctor_inducts[ctor_start + ci] == nd.parent { ctors_of_type = ctors_of_type + 1; }
+            ci = ci + 1;
+        }
+        if env.rec_rule_count[ridx] != ctors_of_type { return 1; }
+    }
+    return 0;
+}
+
 fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices: u64) -> u64 {
     let mut cur: u64 = ty;
 
@@ -323,6 +516,17 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
     let ctor_start: u64 = env.ind_ctor_start[ind_idx];
     let ctor_count: u64 = env.ind_ctor_count[ind_idx];
 
+    let group_rec_start: u64 = env.ind_rec_start[ind_idx];
+    let group_rec_count: u64 = env.ind_rec_count[ind_idx];
+    let mut oc: u64 = 0;
+    while oc < ctor_count {
+        if ind_type_known(env, type_start, type_count, env.ind_ctor_inducts[ctor_start + oc]) == 0 { return 1; }
+        oc = oc + 1;
+    }
+
+    if type_count == 0 && group_rec_count > 0 { return 1; }
+
+    let mut lead_level: u64 = 0;
     let mut ti: u64 = 0;
     while ti < type_count {
         let tidx: u64 = type_start + ti;
@@ -334,6 +538,7 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
 
         let ind_sort_level: u64 = check_inductive_type(env, it_ty, it_num_params, it_num_indices);
         if is_err(ind_sort_level) > 0 { return 1; }
+        if ti == 0 { lead_level = ind_sort_level; }
 
         let mut ci: u64 = 0;
         while ci < ctor_count {
@@ -438,6 +643,15 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
         }
 
         ti = ti + 1;
+    }
+
+    if type_count > 0 {
+        let allows_large: u64 = 1 - elim_only_at_zero(env, lead_level, type_count, group_rec_count, ctor_start, ctor_count);
+        let mut gr: u64 = 0;
+        while gr < group_rec_count {
+            if check_recursor_shape(env, group_rec_start + gr, type_start, type_count, group_rec_count, ctor_start, ctor_count, allows_large) > 0 { return 1; }
+            gr = gr + 1;
+        }
     }
     return 0;
 }
