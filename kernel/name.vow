@@ -100,7 +100,7 @@ pub fn name_to_string(arena: NameArena, idx: u64) -> String {
         let comp: String = components[i];
         let mut j: u64 = 0;
         while j < (comp.len() as u64) {
-            result.push_byte(comp.byte_at(j));
+            result.push_byte(i64_to_u8_wrap(comp.byte_at(j)));
             j = j + 1;
         }
     }

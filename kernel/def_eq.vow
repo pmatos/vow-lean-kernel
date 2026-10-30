@@ -16,7 +16,7 @@ pub fn level_to_string(env: Environment, level: u64) -> String {
         let s: String = String::from("S(");
         let inner: String = level_to_string(env, env.levels.f1[level]);
         let mut i: u64 = 0;
-        while i < (inner.len() as u64) { s.push_byte(inner.byte_at(i as i64)); i = i + 1; }
+        while i < (inner.len() as u64) { s.push_byte(i64_to_u8_wrap(inner.byte_at((i as i64) as u64))); i = i + 1; }
         s.push_byte(41);
         return s;
     }
@@ -24,11 +24,11 @@ pub fn level_to_string(env: Environment, level: u64) -> String {
         let s: String = String::from("max(");
         let l: String = level_to_string(env, env.levels.f1[level]);
         let mut i: u64 = 0;
-        while i < (l.len() as u64) { s.push_byte(l.byte_at(i as i64)); i = i + 1; }
+        while i < (l.len() as u64) { s.push_byte(i64_to_u8_wrap(l.byte_at((i as i64) as u64))); i = i + 1; }
         s.push_byte(44);
         let r: String = level_to_string(env, env.levels.f2[level]);
         i = 0;
-        while i < (r.len() as u64) { s.push_byte(r.byte_at(i as i64)); i = i + 1; }
+        while i < (r.len() as u64) { s.push_byte(i64_to_u8_wrap(r.byte_at((i as i64) as u64))); i = i + 1; }
         s.push_byte(41);
         return s;
     }
@@ -36,11 +36,11 @@ pub fn level_to_string(env: Environment, level: u64) -> String {
         let s: String = String::from("imax(");
         let l: String = level_to_string(env, env.levels.f1[level]);
         let mut i: u64 = 0;
-        while i < (l.len() as u64) { s.push_byte(l.byte_at(i as i64)); i = i + 1; }
+        while i < (l.len() as u64) { s.push_byte(i64_to_u8_wrap(l.byte_at((i as i64) as u64))); i = i + 1; }
         s.push_byte(44);
         let r: String = level_to_string(env, env.levels.f2[level]);
         i = 0;
-        while i < (r.len() as u64) { s.push_byte(r.byte_at(i as i64)); i = i + 1; }
+        while i < (r.len() as u64) { s.push_byte(i64_to_u8_wrap(r.byte_at((i as i64) as u64))); i = i + 1; }
         s.push_byte(41);
         return s;
     }
