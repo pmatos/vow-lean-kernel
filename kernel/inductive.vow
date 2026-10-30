@@ -524,6 +524,8 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
         oc = oc + 1;
     }
 
+    if type_count == 0 && group_rec_count > 0 { return 1; }
+
     let mut lead_level: u64 = 0;
     let mut ti: u64 = 0;
     while ti < type_count {

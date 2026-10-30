@@ -518,7 +518,11 @@ fn check_quot(env: Environment, di: u64) -> u64 {
     if name != want_name { return 1; }
     if (lps.len() as u64) != want_lps { return 1; }
     if quot_dep_earlier(env, env.name_eq, 5, di) == 0 { return 1; }
-    if (env.decl_lps[env_lookup_name(env, env.name_eq).idx].len() as u64) != 1 { return 1; }
+    let eq_decl: u64 = env_lookup_name(env, env.name_eq).idx;
+    let eq_ind: u64 = env.decl_vals[eq_decl];
+    if (env.decl_lps[eq_decl].len() as u64) != 1 { return 1; }
+    if env.ind_type_count[eq_ind] != 1 || env.ind_ctor_count[eq_ind] != 1 { return 1; }
+    if env.ind_type_num_params[env.ind_type_start[eq_ind]] != 2 || env.ind_type_num_indices[env.ind_type_start[eq_ind]] != 1 { return 1; }
     if qk >= 1 && quot_dep_earlier(env, env.name_quot, 4, di) == 0 { return 1; }
     if qk == 3 && quot_dep_earlier(env, env.name_quot_mk, 4, di) == 0 { return 1; }
     let u: u64 = level_add_param(env.levels, lps[0]);
