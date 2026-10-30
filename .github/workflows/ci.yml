@@ -18,12 +18,12 @@ concurrency:
 env:
   # vow-lang/vow commit used to build the self-hosted `vowc` that compiles this
   # kernel. Pinned to the compiler the kernel is developed against: this rev
-  # carries the strict integer typing (vow #868, "separate integer literal
-  # marker from i32") that the kernel was migrated to, plus the region
-  # containment fix (#875) — the kernel no longer builds with the older lenient
-  # compiler. The kernel builds only with the self-hosted `vowc`, not the Rust
-  # `vow`/`vowr` bootstrap. Bump when the kernel needs newer compiler features.
-  VOW_REF: c4932b71b8dd7e7d62de9d9d5748d09180e26480
+  # enforces exact `u64` String offsets and Vec indices and `u8` for
+  # `push_byte`, which the kernel was migrated to — it no longer builds with
+  # older compilers. The kernel builds only with the self-hosted `vowc`, not
+  # the Rust `vow`/`vowr` bootstrap. Bump when the kernel needs newer compiler
+  # features.
+  VOW_REF: a653ef2c1238a6431709202aff9e591d8368ec33
 
 jobs:
   build-and-test:
