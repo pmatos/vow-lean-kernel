@@ -523,12 +523,23 @@ pub fn lift(env: Environment, expr: u64, cutoff: u64, amount: u64) -> u64 {
     return expr;
 }
 
-pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 {
-    if expr < (env.exprs.tags.len() as u64) {
-        if expr_lbr(env.exprs, expr) <= depth {
-            return expr;
-        }
+fn instantiate_rec(env: Environment, expr: u64, arg: u64, depth: u64, stamp: u64) -> u64 {
+    if expr < (env.exprs.tags.len() as u64) && expr_lbr(env.exprs, expr) <= depth {
+        return expr;
     }
+    let h: u64 = (expr * 40503 + depth * 65537) % 65536;
+    if env.inst_memo_stamp[h] == stamp && env.inst_memo_expr[h] == expr && env.inst_memo_depth[h] == depth {
+        return env.inst_memo_result[h];
+    }
+    let r: u64 = instantiate_step(env, expr, arg, depth, stamp);
+    env.inst_memo_stamp[h] = stamp;
+    env.inst_memo_expr[h] = expr;
+    env.inst_memo_depth[h] = depth;
+    env.inst_memo_result[h] = r;
+    return r;
+}
+
+fn instantiate_step(env: Environment, expr: u64, arg: u64, depth: u64, stamp: u64) -> u64 {
     let t: u64 = env.exprs.tags[expr];
     if t == 0 {
         let idx: u64 = env.exprs.f1[expr];
@@ -545,15 +556,8 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
     if t == 3 {
         let func: u64 = env.exprs.f1[expr];
         let a: u64 = env.exprs.f2[expr];
-        let nf: u64 = instantiate_at(env, func, arg, depth);
-        // In App (App f a) a, both occurrences of the shared argument are
-        // instantiated with the same arg and depth. Reuse the transformed
-        // argument already present in nf instead of expanding the DAG twice.
-        let na: u64 = if func < (env.exprs.tags.len() as u64) && env.exprs.tags[func] == 3 && env.exprs.f2[func] == a && nf < (env.exprs.tags.len() as u64) && env.exprs.tags[nf] == 3 {
-            env.exprs.f2[nf]
-        } else {
-            instantiate_at(env, a, arg, depth)
-        };
+        let nf: u64 = instantiate_rec(env, func, arg, depth, stamp);
+        let na: u64 = instantiate_rec(env, a, arg, depth, stamp);
         if nf == func && na == a {
             return expr;
         }
@@ -564,8 +568,8 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
         let bi: u64 = expr_bi(env.exprs, expr);
-        let nt: u64 = instantiate_at(env, ty, arg, depth);
-        let nb: u64 = instantiate_at(env, bd, arg, depth + 1);
+        let nt: u64 = instantiate_rec(env, ty, arg, depth, stamp);
+        let nb: u64 = instantiate_rec(env, bd, arg, depth + 1, stamp);
         if nt == ty && nb == bd {
             return expr;
         }
@@ -576,8 +580,8 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let ty: u64 = env.exprs.f2[expr];
         let bd: u64 = env.exprs.f3[expr];
         let bi: u64 = expr_bi(env.exprs, expr);
-        let nt: u64 = instantiate_at(env, ty, arg, depth);
-        let nb: u64 = instantiate_at(env, bd, arg, depth + 1);
+        let nt: u64 = instantiate_rec(env, ty, arg, depth, stamp);
+        let nb: u64 = instantiate_rec(env, bd, arg, depth + 1, stamp);
         if nt == ty && nb == bd {
             return expr;
         }
@@ -589,9 +593,9 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let vl: u64 = env.exprs.f3[expr];
         let bd: u64 = env.exprs.f4[expr];
         let nd: u64 = expr_bi(env.exprs, expr);
-        let nt: u64 = instantiate_at(env, ty, arg, depth);
-        let nv: u64 = instantiate_at(env, vl, arg, depth);
-        let nb: u64 = instantiate_at(env, bd, arg, depth + 1);
+        let nt: u64 = instantiate_rec(env, ty, arg, depth, stamp);
+        let nv: u64 = instantiate_rec(env, vl, arg, depth, stamp);
+        let nb: u64 = instantiate_rec(env, bd, arg, depth + 1, stamp);
         if nt == ty && nv == vl && nb == bd {
             return expr;
         }
@@ -601,7 +605,7 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
         let sn: u64 = env.exprs.f1[expr];
         let ix: u64 = env.exprs.f2[expr];
         let inner: u64 = env.exprs.f3[expr];
-        let ni: u64 = instantiate_at(env, inner, arg, depth);
+        let ni: u64 = instantiate_rec(env, inner, arg, depth, stamp);
         if ni == inner {
             return expr;
         }
@@ -609,13 +613,18 @@ pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 
     }
     if t == 9 {
         let inner: u64 = env.exprs.f1[expr];
-        let ni: u64 = instantiate_at(env, inner, arg, depth);
+        let ni: u64 = instantiate_rec(env, inner, arg, depth, stamp);
         if ni == inner {
             return expr;
         }
         return expr_add_mdata(env.exprs, ni);
     }
     return expr;
+}
+
+pub fn instantiate_at(env: Environment, expr: u64, arg: u64, depth: u64) -> u64 {
+    env.inst_stamp = env.inst_stamp + 1;
+    return instantiate_rec(env, expr, arg, depth, env.inst_stamp);
 }
 
 pub fn instantiate(env: Environment, body: u64, arg: u64) -> u64 {
