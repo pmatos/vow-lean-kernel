@@ -354,7 +354,7 @@ pub fn expr_add_nat_lit(arena: ExprArena, n: u64) -> u64 {
         let mut di: u64 = (digits.len() as u64);
         while di > 0 {
             di = di - 1;
-            s.push_byte(48 + digits[di]);
+            s.push_byte(u64_to_u8_wrap(48 + digits[di]));
         }
     }
     let idx: u64 = expr_add_lit_nat(arena, s);
@@ -486,7 +486,7 @@ pub fn expr_lit_nat_u64(arena: ExprArena, idx: u64) -> u64 {
     let mut v: u64 = 0;
     let mut i: u64 = 0;
     while i < (arena.lit_val[li].len() as u64) {
-        let d: u64 = (arena.lit_val[li].byte_at(i as i64) as u64) - 48;
+        let d: u64 = (arena.lit_val[li].byte_at((i as i64) as u64) as u64) - 48;
         let prev: u64 = v;
         v = v * 10 + d;
         if v < prev { return 4294967294; }
