@@ -27,7 +27,7 @@ env:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     steps:
       - name: Checkout kernel
@@ -81,7 +81,7 @@ jobs:
     # Advisory for now — surfaces shellcheck findings without blocking. Promote
     # to a required gate once the scripts are clean. shellcheck is preinstalled
     # on ubuntu-latest, so no extra action is pinned here.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     continue-on-error: true
     steps:
       - name: Checkout
