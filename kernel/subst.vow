@@ -527,7 +527,7 @@ fn instantiate_rec(env: Environment, expr: u64, arg: u64, depth: u64, stamp: u64
     if expr < (env.exprs.tags.len() as u64) && expr_lbr(env.exprs, expr) <= depth {
         return expr;
     }
-    let h: u64 = (expr * 40503 + depth * 65537) % (env.inst_memo_result.len() as u64);
+    let h: u64 = (expr * 40503 + depth * 65537) % 65536;
     if env.inst_memo_stamp[h] == stamp && env.inst_memo_expr[h] == expr && env.inst_memo_depth[h] == depth {
         return env.inst_memo_result[h];
     }
