@@ -40,6 +40,24 @@ fn rec_suffix_kind(s: String) -> u64 {
     return 2;
 }
 
+fn ctor_owned_by(env: Environment, ctor_start: u64, ctor_count: u64, ctor: u64, parent: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < ctor_count {
+        if env.ind_ctor_names[ctor_start + i] == ctor && env.ind_ctor_inducts[ctor_start + i] == parent { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn rule_ctor_seen(env: Environment, rr_start: u64, upto: u64, ctor: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < upto {
+        if env.rec_rule_ctors[rr_start + i] == ctor { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
 fn ind_type_known(env: Environment, type_start: u64, type_count: u64, name: u64) -> u64 {
     let mut ti: u64 = 0;
     while ti < type_count {
@@ -65,7 +83,6 @@ fn single_ctor_allows_large_elim(env: Environment, cidx: u64) -> u64 {
         if i >= num_params {
             let sort: u64 = ensure_sort(env, infer(env, domain));
             if is_err(sort) > 0 {
-                if env.kernel_fuel > 5000000 || env.alloc_tripped > 0 { env.def_eq_gaveup = 1; }
                 return 0;
             }
             if is_level_zero(env, sort) == 0 {
@@ -165,7 +182,8 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
 
     let suffix_kind: u64 = rec_suffix_kind(nd.field_str);
     if suffix_kind == 0 { return 1; }
-    let is_primary: u64 = 2 - suffix_kind;
+    let mut is_primary: u64 = 0;
+    if suffix_kind == 1 { is_primary = 1; }
     let total: u64 = np + nm + nmin + ni + 1;
     let mut cur: u64 = env.rec_tys[ridx];
     let mut pos: u64 = 0;
@@ -221,18 +239,8 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
         let mut ri: u64 = 0;
         while ri < rule_count {
             let rule_ctor: u64 = env.rec_rule_ctors[rr_start + ri];
-            let mut own: u64 = 0;
-            let mut oi: u64 = 0;
-            while oi < ctor_count {
-                if env.ind_ctor_names[ctor_start + oi] == rule_ctor && env.ind_ctor_inducts[ctor_start + oi] == nd.parent { own = 1; }
-                oi = oi + 1;
-            }
-            if own == 0 { return 1; }
-            let mut rj: u64 = 0;
-            while rj < ri {
-                if env.rec_rule_ctors[rr_start + rj] == rule_ctor { return 1; }
-                rj = rj + 1;
-            }
+            if ctor_owned_by(env, ctor_start, ctor_count, rule_ctor, nd.parent) == 0 { return 1; }
+            if rule_ctor_seen(env, rr_start, ri, rule_ctor) > 0 { return 1; }
             ri = ri + 1;
         }
     }
@@ -361,6 +369,7 @@ fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_param
 }
 
 fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, ctor_ty: u64, ctor_num_params: u64, ctor_num_fields: u64, ind_sort_level: u64) -> u64 {
+    if ctor_num_params != ind_num_params { return 1; }
     let mut cty: u64 = ctor_ty;
     let mut ity: u64 = ind_ty;
     let param_locals: Vec<u64> = Vec::new();
@@ -584,7 +593,6 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
             if c_induct == it_name {
                 let c_ty: u64 = env.ind_ctor_tys[cidx];
                 let c_num_params: u64 = env.ind_ctor_num_params[cidx];
-                if c_num_params != it_num_params { return 1; }
                 let c_num_fields: u64 = env.ind_ctor_num_fields[cidx];
                 let r: u64 = check_constructor(env, it_name, it_ty, it_num_params, it_num_indices, it_level_params, c_ty, c_num_params, c_num_fields, ind_sort_level);
                 if r > 0 { return 1; }

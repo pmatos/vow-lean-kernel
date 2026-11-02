@@ -403,7 +403,7 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
         }
     }
     env.kernel_fuel = env.kernel_fuel + 1;
-    if env.kernel_fuel > 5000000 { return err_val(); }
+    if env.kernel_fuel > 5000000 { env.def_eq_gaveup = 1; return err_val(); }
     env.cnt_infer_uncached = env.cnt_infer_uncached + 1;
     let tag_v: u64 = env.exprs.tags[expr];
     if tag_v < (env.cnt_infer_tag.len() as u64) {
