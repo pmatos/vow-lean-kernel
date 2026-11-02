@@ -540,11 +540,6 @@ fn instantiate_rec(env: Environment, expr: u64, arg: u64, depth: u64, stamp: u64
 }
 
 fn instantiate_step(env: Environment, expr: u64, arg: u64, depth: u64, stamp: u64) -> u64 {
-    if expr < (env.exprs.tags.len() as u64) {
-        if expr_lbr(env.exprs, expr) <= depth {
-            return expr;
-        }
-    }
     let t: u64 = env.exprs.tags[expr];
     if t == 0 {
         let idx: u64 = env.exprs.f1[expr];
@@ -562,14 +557,7 @@ fn instantiate_step(env: Environment, expr: u64, arg: u64, depth: u64, stamp: u6
         let func: u64 = env.exprs.f1[expr];
         let a: u64 = env.exprs.f2[expr];
         let nf: u64 = instantiate_rec(env, func, arg, depth, stamp);
-        // In App (App f a) a, both occurrences of the shared argument are
-        // instantiated with the same arg and depth. Reuse the transformed
-        // argument already present in nf instead of expanding the DAG twice.
-        let na: u64 = if func < (env.exprs.tags.len() as u64) && env.exprs.tags[func] == 3 && env.exprs.f2[func] == a && nf < (env.exprs.tags.len() as u64) && env.exprs.tags[nf] == 3 {
-            env.exprs.f2[nf]
-        } else {
-            instantiate_rec(env, a, arg, depth, stamp)
-        };
+        let na: u64 = instantiate_rec(env, a, arg, depth, stamp);
         if nf == func && na == a {
             return expr;
         }
