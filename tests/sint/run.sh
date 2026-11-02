@@ -4,6 +4,10 @@
 CHECKER="${1:-./lean_checker}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 pass=0; fail=0
+if ! (ulimit -v 8388608 && ulimit -s 65536) >/dev/null 2>&1; then
+  echo "ERROR: cannot set ulimit -v 8388608 / -s 65536 on this host" >&2
+  exit 3
+fi
 for f in "$DIR"/*.ndjson; do
   name=$(basename "$f" .ndjson)
   (ulimit -v 8388608 && ulimit -s 65536 && "$CHECKER" "$f" >/dev/null 2>&1)

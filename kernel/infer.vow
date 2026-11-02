@@ -503,6 +503,30 @@ fn quot_dep_earlier(env: Environment, name: u64, kind: u64, di: u64) -> u64 {
     return 1;
 }
 
+// The Eq the quotient declarations depend on must be the real one: a single
+// inductive Eq.{u} : {a : Sort u} -> a -> a -> Prop with one constructor
+// Eq.refl.{u} : {a : Sort u} -> (x : a) -> Eq.{u} a x x, declared before di.
+fn quot_eq_is_canonical(env: Environment, di: u64) -> u64 {
+    if quot_dep_earlier(env, env.name_eq, 5, di) == 0 { return 0; }
+    let eq_decl: u64 = env_lookup_name(env, env.name_eq).idx;
+    let eq_lps: Vec<u64> = env.decl_lps[eq_decl];
+    if (eq_lps.len() as u64) != 1 { return 0; }
+    let eq_ind: u64 = env.decl_vals[eq_decl];
+    if env.ind_type_count[eq_ind] != 1 || env.ind_ctor_count[eq_ind] != 1 { return 0; }
+    let ctor: u64 = env.ind_ctor_start[eq_ind];
+    if env.ind_ctor_inducts[ctor] != env.name_eq { return 0; }
+    let u: u64 = level_add_param(env.levels, eq_lps[0]);
+    let sort_u: u64 = expr_add_sort(env.exprs, u);
+    let prop: u64 = expr_add_sort(env.exprs, level_add_zero(env.levels));
+    let b0: u64 = expr_add_bvar(env.exprs, 0);
+    let b1: u64 = expr_add_bvar(env.exprs, 1);
+    let eq_type: u64 = quot_pi(env, sort_u, quot_pi(env, b0, quot_pi(env, b1, prop)));
+    if is_def_eq(env, env.decl_tys[eq_decl], eq_type) == 0 { return 0; }
+    let eq_c: u64 = quot_const(env, env.name_eq, u);
+    let refl_type: u64 = quot_pi(env, sort_u, quot_pi(env, b0, quot_app2(env, expr_add_app(env.exprs, eq_c, b1), b0, b0)));
+    return is_def_eq(env, env.ind_ctor_tys[ctor], refl_type);
+}
+
 // Quot, Quot.mk, Quot.lift and Quot.ind are fixed by the kernel: the exported
 // declaration must have exactly that name and type, and must only depend on
 // the real Eq and on the other quotient declarations that precede it.
@@ -517,12 +541,7 @@ fn check_quot(env: Environment, di: u64) -> u64 {
     if qk == 3 { want_name = env.name_quot_ind; }
     if name != want_name { return 1; }
     if (lps.len() as u64) != want_lps { return 1; }
-    if quot_dep_earlier(env, env.name_eq, 5, di) == 0 { return 1; }
-    let eq_decl: u64 = env_lookup_name(env, env.name_eq).idx;
-    let eq_ind: u64 = env.decl_vals[eq_decl];
-    if (env.decl_lps[eq_decl].len() as u64) != 1 { return 1; }
-    if env.ind_type_count[eq_ind] != 1 || env.ind_ctor_count[eq_ind] != 1 { return 1; }
-    if env.ind_type_num_params[env.ind_type_start[eq_ind]] != 2 || env.ind_type_num_indices[env.ind_type_start[eq_ind]] != 1 { return 1; }
+    if quot_eq_is_canonical(env, di) == 0 { return 1; }
     if qk >= 1 && quot_dep_earlier(env, env.name_quot, 4, di) == 0 { return 1; }
     if qk == 3 && quot_dep_earlier(env, env.name_quot_mk, 4, di) == 0 { return 1; }
     let u: u64 = level_add_param(env.levels, lps[0]);

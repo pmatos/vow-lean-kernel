@@ -70,6 +70,13 @@ SKIP=0
 MISSING=0
 TOTAL=0
 
+# If the limits cannot be set the checker never runs and the subshell exits 1,
+# which would read as a reject and make every tests/bad case pass vacuously.
+if ! ( ulimit -v "$MEM_LIMIT" && ulimit -s "$STACK_LIMIT" ) >/dev/null 2>&1; then
+    echo "ERROR: cannot set ulimit -v $MEM_LIMIT / -s $STACK_LIMIT on this host" >&2
+    exit 3
+fi
+
 for dir in "${DIRS[@]}"; do
     # A requested directory that does not exist is an error, not a skip: it must
     # affect the exit status so a renamed/omitted suite can't pass silently. The
