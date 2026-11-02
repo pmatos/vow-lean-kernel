@@ -38,6 +38,11 @@ emit() { echo "$1"; [[ -n "$OUT" ]] && echo "$1" >> "$OUT"; }
 emit "| input | file MB | verdict | exit | wall | max RSS |"
 emit "|-------|--------:|---------|-----:|------|--------:|"
 
+if ! ( ulimit -v "$MEM_LIMIT" && ulimit -s "$STACK_LIMIT" ) >/dev/null 2>&1; then
+    echo "ERROR: cannot set ulimit -v $MEM_LIMIT / -s $STACK_LIMIT on this host" >&2
+    exit 3
+fi
+
 acc=0; rej=0; dec=0; err=0
 for pair in "${args[@]}"; do
     label="${pair%%=*}"
