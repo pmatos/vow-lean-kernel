@@ -23,6 +23,21 @@ fn lps_equal(a: Vec<u64>, b: Vec<u64>) -> u64 {
     return 1;
 }
 
+fn no_count() -> u64 {
+    return 4294967295;
+}
+
+// Only the leading type of an inductive block is registered as a declaration,
+// so env_lookup_name misses the others; their parameters live in ind_type_lps.
+fn block_type_lp_count(env: Environment, name: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < (env.ind_type_names.len() as u64) {
+        if env.ind_type_names[i] == name { return env.ind_type_lps[i].len() as u64; }
+        i = i + 1;
+    }
+    return no_count();
+}
+
 // Visited nodes of a walk have their tag raised by 16. Lower every tag marked
 // from stack[base..] back down and drop that part of the shared scratch stack.
 fn unmark(tags: Vec<u64>, stack: Vec<u64>, base: u64) {
@@ -37,7 +52,6 @@ fn unmark(tags: Vec<u64>, stack: Vec<u64>, base: u64) {
     stack.truncate(base);
 }
 
-// Every Param reachable from `level` must be one of `lps`.
 fn level_in_scope(env: Environment, level: u64, lps: Vec<u64>) -> u64 {
     let stack: Vec<u64> = env.exprs.scratch_args;
     let base: u64 = (stack.len() as u64);
@@ -70,11 +84,7 @@ fn level_in_scope(env: Environment, level: u64, lps: Vec<u64>) -> u64 {
     return ok;
 }
 
-// Structural walk over an expression DAG: every level in a Sort or a Const's
-// level arguments must only use `lps`, and a Const naming a known declaration
-// must carry exactly as many level arguments as that declaration has
-// parameters. Unknown names are left to infer. Visited nodes have their tag
-// raised by 16 and are restored on every exit path.
+// Names that resolve to no declaration are left to infer.
 fn expr_scope_ok(env: Environment, root: u64, lps: Vec<u64>) -> u64 {
     let arena: ExprArena = env.exprs;
     let stack: Vec<u64> = arena.scratch_args;
@@ -104,7 +114,12 @@ fn expr_scope_ok(env: Environment, root: u64, lps: Vec<u64>) -> u64 {
                     if ok == 1 {
                         // infer_const makes this check too, but inductive types never reach it.
                         let lk: DeclLookup = env_lookup_name(env, arena.f1[cur]);
-                        if lk.found > 0 && (env.decl_lps[lk.idx].len() as u64) != count { ok = 0; }
+                        if lk.found > 0 {
+                            if (env.decl_lps[lk.idx].len() as u64) != count { ok = 0; }
+                        } else {
+                            let want: u64 = block_type_lp_count(env, arena.f1[cur]);
+                            if want != no_count() && want != count { ok = 0; }
+                        }
                     }
                 } else if t == 3 {
                     stack.push(arena.f1[cur]);
@@ -138,9 +153,6 @@ fn ind_type_of_name(env: Environment, type_start: u64, type_count: u64, name: u6
     return type_start + type_count;
 }
 
-// An inductive block: every type is well-scoped under its own parameters, all
-// types share the leading type's parameters, and each constructor declares the
-// parameters of the type it belongs to.
 fn inductive_scope_ok(env: Environment, ind_idx: u64) -> u64 {
     let type_start: u64 = env.ind_type_start[ind_idx];
     let type_count: u64 = env.ind_type_count[ind_idx];
@@ -160,20 +172,16 @@ fn inductive_scope_ok(env: Environment, ind_idx: u64) -> u64 {
     while ci < ctor_count {
         let cidx: u64 = ctor_start + ci;
         let owner: u64 = ind_type_of_name(env, type_start, type_count, env.ind_ctor_inducts[cidx]);
-        if owner < type_start + type_count {
-            let lk: DeclLookup = env_lookup_name(env, env.ind_ctor_names[cidx]);
-            if lk.found > 0 {
-                if lps_equal(env.decl_lps[lk.idx], env.ind_type_lps[owner]) == 0 { return 0; }
-            }
-        }
+        if owner >= type_start + type_count { return 0; }
+        let lk: DeclLookup = env_lookup_name(env, env.ind_ctor_names[cidx]);
+        if lk.found == 0 { return 0; }
+        if lps_equal(env.decl_lps[lk.idx], env.ind_type_lps[owner]) == 0 { return 0; }
         ci = ci + 1;
     }
     return 1;
 }
 
-// Returns 1 when the declaration's expressions only mention universe
-// parameters that the declaration declares, and every constant is applied to
-// the right number of levels; 0 otherwise.
+// 1 when every universe parameter used is declared and every constant has the right level count.
 pub fn check_decl_scope(env: Environment, di: u64) -> u64 {
     let kind: u64 = env.decl_kinds[di];
     let lps: Vec<u64> = env.decl_lps[di];
