@@ -1,0 +1,7 @@
+{"meta":{"exporter":{"name":"lean4export","version":"3.1.0"},"format":{"version":"3.1.0"},"lean":{"githash":"x","version":"4.34.1"}}}
+{"in":1,"str":{"pre":0,"str":"u"}}
+{"in":2,"str":{"pre":0,"str":"A"}}
+{"il":1,"param":1}
+{"ie":0,"sort":0}
+{"ie":1,"sort":1}
+{"axiom":{"isUnsafe":false,"levelParams":[],"name":2,"type":1}}

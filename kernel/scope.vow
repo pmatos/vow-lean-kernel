@@ -1,0 +1,202 @@
+module Scope
+
+use kernel.level
+use kernel.expr
+use kernel.env
+
+fn lps_has(lps: Vec<u64>, name: u64) -> u64 {
+    let mut i: u64 = 0;
+    while i < (lps.len() as u64) {
+        if lps[i] == name { return 1; }
+        i = i + 1;
+    }
+    return 0;
+}
+
+fn lps_equal(a: Vec<u64>, b: Vec<u64>) -> u64 {
+    if (a.len() as u64) != (b.len() as u64) { return 0; }
+    let mut i: u64 = 0;
+    while i < (a.len() as u64) {
+        if a[i] != b[i] { return 0; }
+        i = i + 1;
+    }
+    return 1;
+}
+
+// Every Param reachable from `level` must be one of `lps`. Worklist and visited
+// marks follow expr_contains_const: the shared scratch stack holds the worklist
+// and a level tag is raised by 16 while visited, then restored.
+fn level_in_scope(env: Environment, level: u64, lps: Vec<u64>) -> u64 {
+    let stack: Vec<u64> = env.exprs.scratch_args;
+    let base: u64 = (stack.len() as u64);
+    stack.push(level);
+
+    let mut cursor: u64 = base;
+    let mut ok: u64 = 1;
+    while cursor < (stack.len() as u64) && ok == 1 {
+        let cur: u64 = stack[cursor];
+        cursor = cursor + 1;
+        if cur >= (env.levels.tags.len() as u64) {
+            ok = 0;
+        } else {
+            let t: u64 = env.levels.tags[cur];
+            if t < 16 {
+                env.levels.tags[cur] = t + 16;
+                if t == 1 {
+                    stack.push(env.levels.f1[cur]);
+                } else if t == 2 || t == 3 {
+                    stack.push(env.levels.f1[cur]);
+                    stack.push(env.levels.f2[cur]);
+                } else if t == 4 {
+                    if lps_has(lps, env.levels.f1[cur]) == 0 { ok = 0; }
+                }
+            }
+        }
+    }
+
+    let mut restore: u64 = base;
+    while restore < (stack.len() as u64) {
+        let idx: u64 = stack[restore];
+        if idx < (env.levels.tags.len() as u64) && env.levels.tags[idx] >= 16 {
+            env.levels.tags[idx] = env.levels.tags[idx] - 16;
+        }
+        restore = restore + 1;
+    }
+    stack.truncate(base);
+    return ok;
+}
+
+// Structural walk over an expression DAG: every level in a Sort or a Const's
+// level arguments must only use `lps`, and a Const naming a known declaration
+// must carry exactly as many level arguments as that declaration has
+// parameters. Unknown names are left to infer. Visited nodes have their tag
+// raised by 16 and are restored on every exit path.
+fn expr_scope_ok(env: Environment, root: u64, lps: Vec<u64>) -> u64 {
+    let arena: ExprArena = env.exprs;
+    let stack: Vec<u64> = arena.scratch_args;
+    let base: u64 = (stack.len() as u64);
+    stack.push(root);
+
+    let mut cursor: u64 = base;
+    let mut ok: u64 = 1;
+    while cursor < (stack.len() as u64) && ok == 1 {
+        let cur: u64 = stack[cursor];
+        cursor = cursor + 1;
+        if cur >= (arena.tags.len() as u64) {
+            ok = 0;
+        } else {
+            let t: u64 = arena.tags[cur];
+            if t < 16 {
+                arena.tags[cur] = t + 16;
+                if t == 1 {
+                    if level_in_scope(env, arena.f1[cur], lps) == 0 { ok = 0; }
+                } else if t == 2 {
+                    let count: u64 = arena.f3[cur];
+                    let mut li: u64 = 0;
+                    while li < count && ok == 1 {
+                        if level_in_scope(env, arena.level_pool[arena.f2[cur] + li], lps) == 0 { ok = 0; }
+                        li = li + 1;
+                    }
+                    if ok == 1 {
+                        let lk: DeclLookup = env_lookup_name(env, arena.f1[cur]);
+                        if lk.found > 0 && (env.decl_lps[lk.idx].len() as u64) != count { ok = 0; }
+                    }
+                } else if t == 3 {
+                    stack.push(arena.f1[cur]);
+                    stack.push(arena.f2[cur]);
+                } else if t == 4 || t == 5 {
+                    stack.push(arena.f2[cur]);
+                    stack.push(arena.f3[cur]);
+                } else if t == 6 {
+                    stack.push(arena.f2[cur]);
+                    stack.push(arena.f3[cur]);
+                    stack.push(arena.f4[cur]);
+                } else if t == 8 {
+                    stack.push(arena.f3[cur]);
+                } else if t == 9 {
+                    stack.push(arena.f1[cur]);
+                }
+            }
+        }
+    }
+
+    let mut restore: u64 = base;
+    while restore < (stack.len() as u64) {
+        let idx: u64 = stack[restore];
+        if idx < (arena.tags.len() as u64) && arena.tags[idx] >= 16 {
+            arena.tags[idx] = arena.tags[idx] - 16;
+        }
+        restore = restore + 1;
+    }
+    stack.truncate(base);
+    return ok;
+}
+
+fn ind_type_of_name(env: Environment, type_start: u64, type_count: u64, name: u64) -> u64 {
+    let mut ti: u64 = 0;
+    while ti < type_count {
+        if env.ind_type_names[type_start + ti] == name { return type_start + ti; }
+        ti = ti + 1;
+    }
+    return type_start + type_count;
+}
+
+// An inductive block: every type is well-scoped under its own parameters, all
+// types share the leading type's parameters, and each constructor declares the
+// parameters of the type it belongs to.
+fn inductive_scope_ok(env: Environment, ind_idx: u64) -> u64 {
+    let type_start: u64 = env.ind_type_start[ind_idx];
+    let type_count: u64 = env.ind_type_count[ind_idx];
+    let ctor_start: u64 = env.ind_ctor_start[ind_idx];
+    let ctor_count: u64 = env.ind_ctor_count[ind_idx];
+
+    let mut ti: u64 = 0;
+    while ti < type_count {
+        let tidx: u64 = type_start + ti;
+        let lps: Vec<u64> = env.ind_type_lps[tidx];
+        if lps_equal(lps, env.ind_type_lps[type_start]) == 0 { return 0; }
+        if expr_scope_ok(env, env.ind_type_tys[tidx], lps) == 0 { return 0; }
+        ti = ti + 1;
+    }
+
+    let mut ci: u64 = 0;
+    while ci < ctor_count {
+        let cidx: u64 = ctor_start + ci;
+        let owner: u64 = ind_type_of_name(env, type_start, type_count, env.ind_ctor_inducts[cidx]);
+        if owner < type_start + type_count {
+            let lk: DeclLookup = env_lookup_name(env, env.ind_ctor_names[cidx]);
+            if lk.found > 0 {
+                if lps_equal(env.decl_lps[lk.idx], env.ind_type_lps[owner]) == 0 { return 0; }
+            }
+        }
+        ci = ci + 1;
+    }
+    return 1;
+}
+
+// Returns 1 when the declaration's expressions only mention universe
+// parameters that the declaration declares, and every constant is applied to
+// the right number of levels; 0 otherwise.
+pub fn check_decl_scope(env: Environment, di: u64) -> u64 {
+    let kind: u64 = env.decl_kinds[di];
+    let lps: Vec<u64> = env.decl_lps[di];
+
+    if kind == 5 {
+        return inductive_scope_ok(env, env.decl_vals[di]);
+    }
+    if expr_scope_ok(env, env.decl_tys[di], lps) == 0 { return 0; }
+
+    if kind == 1 || kind == 2 || kind == 3 {
+        if expr_scope_ok(env, env.decl_vals[di], lps) == 0 { return 0; }
+    } else if kind == 7 {
+        let ridx: u64 = env.decl_vals[di];
+        let rule_start: u64 = env.rec_rule_start[ridx];
+        let rule_count: u64 = env.rec_rule_count[ridx];
+        let mut ri: u64 = 0;
+        while ri < rule_count {
+            if expr_scope_ok(env, env.rec_rule_rhs[rule_start + ri], lps) == 0 { return 0; }
+            ri = ri + 1;
+        }
+    }
+    return 1;
+}
