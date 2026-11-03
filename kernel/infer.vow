@@ -94,11 +94,45 @@ fn ensure_forall(env: Environment, expr: u64) -> u64 {
     return err_val();
 }
 
+// Only the leading type of a mutual block is registered as a declaration.
+// Resolve the other types through their block, retaining that declaration's
+// visibility boundary and the individual type's universe parameters.
+fn infer_mutual_const(env: Environment, expr: u64, name_idx: u64) -> u64 {
+    let mut di: u64 = 0;
+    while di < (env.decl_kinds.len() as u64) {
+        if env.decl_kinds[di] == 5 {
+            let ind_idx: u64 = env.decl_vals[di];
+            let start: u64 = env.ind_type_start[ind_idx];
+            let count: u64 = env.ind_type_count[ind_idx];
+            let mut ti: u64 = 1;
+            while ti < count {
+                let tidx: u64 = start + ti;
+                if env.ind_type_names[tidx] == name_idx {
+                    if di > env.current_decl_idx {
+                        env.forward_ref_violation = 1;
+                        return err_val();
+                    }
+                    let lps: Vec<u64> = env.ind_type_lps[tidx];
+                    if expr_level_count(env.exprs, expr) != (lps.len() as u64) {
+                        return err_val();
+                    }
+                    let ty: u64 = env.ind_type_tys[tidx];
+                    if lps.len() == 0 { return ty; }
+                    return subst_level_params_const_args(env, ty, lps, expr);
+                }
+                ti = ti + 1;
+            }
+        }
+        di = di + 1;
+    }
+    return err_val();
+}
+
 fn infer_const(env: Environment, expr: u64) -> u64 {
     let name_idx: u64 = env.exprs.f1[expr];
     let lookup: DeclLookup = env_lookup_name(env, name_idx);
     if lookup.found == 0 {
-        return err_val();
+        return infer_mutual_const(env, expr, name_idx);
     }
     // The whole export is loaded before checking starts, so a name resolves
     // even when it is declared later in the file or is the declaration being
