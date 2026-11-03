@@ -373,7 +373,7 @@ fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_param
     return 0;
 }
 
-fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, ctor_ty: u64, ctor_num_params: u64, ctor_num_fields: u64, ind_sort_level: u64) -> u64 {
+fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, ctor_ty: u64, ctor_num_params: u64, ctor_num_fields: u64, ind_sort_level: u64, type_start: u64, type_count: u64) -> u64 {
     if ctor_num_params != ind_num_params { return 1; }
     // Equality and result shape alone do not establish well-typedness. Infer
     // parameters, fields and result indices before the inductive-specific checks.
@@ -408,7 +408,11 @@ fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_param
 
         let field_ty: u64 = env.exprs.f2[cty];
 
-        if check_strict_positive(env, field_ty, ind_name) == 0 { return 1; }
+        let mut ti: u64 = 0;
+        while ti < type_count {
+            if check_strict_positive(env, field_ty, env.ind_type_names[type_start + ti]) == 0 { return 1; }
+            ti = ti + 1;
+        }
         if check_field_universe(env, field_ty, ind_sort_level) == 0 { return 1; }
 
         let local_id: u64 = env.next_local_id;
@@ -602,7 +606,7 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
                 let c_ty: u64 = env.ind_ctor_tys[cidx];
                 let c_num_params: u64 = env.ind_ctor_num_params[cidx];
                 let c_num_fields: u64 = env.ind_ctor_num_fields[cidx];
-                let r: u64 = check_constructor(env, it_name, it_ty, it_num_params, it_num_indices, it_level_params, c_ty, c_num_params, c_num_fields, ind_sort_level);
+                let r: u64 = check_constructor(env, it_name, it_ty, it_num_params, it_num_indices, it_level_params, c_ty, c_num_params, c_num_fields, ind_sort_level, type_start, type_count);
                 if r > 0 { return 1; }
             }
             ci = ci + 1;

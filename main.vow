@@ -214,13 +214,17 @@ fn main() -> i32 [io, read] {
         }
         pei = pei + 1;
     }
-    env.decl_names.truncate(0);
-    env.decl_name_hashes.truncate(0);
-    env.rec_lps.truncate(0);
     // Build name_idx → decl_idx reverse index used by env_lookup_name.
     // Must run AFTER parsing fills decl_name_ids and AFTER PProd/PSigma proj
     // canonicalization above (so the Proj rewrite doesn't shift any decls).
     env_build_name_index(env);
+    if env.dup_error > 0 {
+        eprintln_str(String::from("error: duplicate or invalid declaration metadata"));
+        return 1i32;
+    }
+    env.decl_names.truncate(0);
+    env.decl_name_hashes.truncate(0);
+    env.rec_lps.truncate(0);
     let expr_watermark: u64 = (env.exprs.tags.len() as u64);
     let level_watermark: u64 = (env.levels.tags.len() as u64);
     env.decl_expr_base = expr_watermark;
@@ -393,6 +397,7 @@ fn main() -> i32 [io, read] {
         env.def_eq_depth = 0;
         env.def_eq_binder_depth = 0;
         env.whnf_depth = 0;
+        env.infer_depth = 0;
         env.max_def_eq_depth = 0;
         env.max_whnf_depth = 0;
         env.kernel_fuel = 0;
