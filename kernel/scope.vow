@@ -23,9 +23,21 @@ fn lps_equal(a: Vec<u64>, b: Vec<u64>) -> u64 {
     return 1;
 }
 
-// Every Param reachable from `level` must be one of `lps`. Worklist and visited
-// marks follow expr_contains_const: the shared scratch stack holds the worklist
-// and a level tag is raised by 16 while visited, then restored.
+// Visited nodes of a walk have their tag raised by 16. Lower every tag marked
+// from stack[base..] back down and drop that part of the shared scratch stack.
+fn unmark(tags: Vec<u64>, stack: Vec<u64>, base: u64) {
+    let mut i: u64 = base;
+    while i < (stack.len() as u64) {
+        let idx: u64 = stack[i];
+        if idx < (tags.len() as u64) && tags[idx] >= 16 {
+            tags[idx] = tags[idx] - 16;
+        }
+        i = i + 1;
+    }
+    stack.truncate(base);
+}
+
+// Every Param reachable from `level` must be one of `lps`.
 fn level_in_scope(env: Environment, level: u64, lps: Vec<u64>) -> u64 {
     let stack: Vec<u64> = env.exprs.scratch_args;
     let base: u64 = (stack.len() as u64);
@@ -54,15 +66,7 @@ fn level_in_scope(env: Environment, level: u64, lps: Vec<u64>) -> u64 {
         }
     }
 
-    let mut restore: u64 = base;
-    while restore < (stack.len() as u64) {
-        let idx: u64 = stack[restore];
-        if idx < (env.levels.tags.len() as u64) && env.levels.tags[idx] >= 16 {
-            env.levels.tags[idx] = env.levels.tags[idx] - 16;
-        }
-        restore = restore + 1;
-    }
-    stack.truncate(base);
+    unmark(env.levels.tags, stack, base);
     return ok;
 }
 
@@ -98,6 +102,7 @@ fn expr_scope_ok(env: Environment, root: u64, lps: Vec<u64>) -> u64 {
                         li = li + 1;
                     }
                     if ok == 1 {
+                        // infer_const makes this check too, but inductive types never reach it.
                         let lk: DeclLookup = env_lookup_name(env, arena.f1[cur]);
                         if lk.found > 0 && (env.decl_lps[lk.idx].len() as u64) != count { ok = 0; }
                     }
@@ -120,15 +125,7 @@ fn expr_scope_ok(env: Environment, root: u64, lps: Vec<u64>) -> u64 {
         }
     }
 
-    let mut restore: u64 = base;
-    while restore < (stack.len() as u64) {
-        let idx: u64 = stack[restore];
-        if idx < (arena.tags.len() as u64) && arena.tags[idx] >= 16 {
-            arena.tags[idx] = arena.tags[idx] - 16;
-        }
-        restore = restore + 1;
-    }
-    stack.truncate(base);
+    unmark(arena.tags, stack, base);
     return ok;
 }
 
