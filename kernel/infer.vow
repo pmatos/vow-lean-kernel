@@ -94,11 +94,29 @@ fn ensure_forall(env: Environment, expr: u64) -> u64 {
     return err_val();
 }
 
+// Only the leading type of a mutual block is registered as a declaration.
+// Resolve the other types through their block, retaining that declaration's
+// visibility boundary and the individual type's universe parameters.
+fn infer_mutual_const(env: Environment, expr: u64, name_idx: u64) -> u64 {
+    if name_idx >= (env.name_to_ind_type_idx.len() as u64) { return err_val(); }
+    let tidx: u64 = env.name_to_ind_type_idx[name_idx];
+    if is_err(tidx) > 0 { return err_val(); }
+    if env.name_to_ind_decl_idx[name_idx] > env.current_decl_idx {
+        env.forward_ref_violation = 1;
+        return err_val();
+    }
+    let lps: Vec<u64> = env.ind_type_lps[tidx];
+    if expr_level_count(env.exprs, expr) != (lps.len() as u64) { return err_val(); }
+    let ty: u64 = env.ind_type_tys[tidx];
+    if lps.len() == 0 { return ty; }
+    return subst_level_params_const_args(env, ty, lps, expr);
+}
+
 fn infer_const(env: Environment, expr: u64) -> u64 {
     let name_idx: u64 = env.exprs.f1[expr];
     let lookup: DeclLookup = env_lookup_name(env, name_idx);
     if lookup.found == 0 {
-        return err_val();
+        return infer_mutual_const(env, expr, name_idx);
     }
     // The whole export is loaded before checking starts, so a name resolves
     // even when it is declared later in the file or is the declaration being
@@ -405,12 +423,17 @@ pub fn infer(env: Environment, expr: u64) -> u64 {
     }
     env.kernel_fuel = env.kernel_fuel + 1;
     if env.kernel_fuel > 5000000 { env.def_eq_gaveup = 1; return err_val(); }
+    // Fuel bounds work, not native stack use. Leave room for nested reduction
+    // and equality checks, whose own depth limits share this stack.
+    if env.infer_depth >= 1024 { env.def_eq_gaveup = 1; return err_val(); }
+    env.infer_depth = env.infer_depth + 1;
     env.cnt_infer_uncached = env.cnt_infer_uncached + 1;
     let tag_v: u64 = env.exprs.tags[expr];
     if tag_v < (env.cnt_infer_tag.len() as u64) {
         env.cnt_infer_tag[tag_v] = env.cnt_infer_tag[tag_v] + 1;
     }
     let result: u64 = infer_uncached(env, expr);
+    env.infer_depth = env.infer_depth - 1;
     if contextual > 0 {
         infer_ctx_cache_store(env, expr, result);
     } else {

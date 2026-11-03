@@ -248,6 +248,9 @@ fn check_recursor_shape(env: Environment, ridx: u64, type_start: u64, type_count
 }
 
 fn check_inductive_type(env: Environment, ty: u64, num_params: u64, num_indices: u64) -> u64 {
+    // Infer the original telescope so dependent domains are checked in their
+    // binder context before the shape walk below peels off the binders.
+    if is_err(ensure_sort(env, infer(env, ty))) > 0 { return err_val(); }
     let mut cur: u64 = ty;
 
     let mut pi: u64 = 0;
@@ -313,6 +316,8 @@ fn check_strict_positive(env: Environment, field_ty: u64, ind_name: u64) -> u64 
 }
 
 fn check_field_universe(env: Environment, field_ty: u64, ind_sort_level: u64) -> u64 {
+    // check_constructor already type-checks every domain, including Prop
+    // fields. Prop only exempts the field from the universe inequality.
     if is_level_zero(env, ind_sort_level) > 0 {
         return 1;
     }
@@ -368,8 +373,11 @@ fn check_result_type(env: Environment, result: u64, ind_name: u64, ind_num_param
     return 0;
 }
 
-fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, ctor_ty: u64, ctor_num_params: u64, ctor_num_fields: u64, ind_sort_level: u64) -> u64 {
+fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_params: u64, ind_num_indices: u64, ind_level_params: Vec<u64>, ctor_ty: u64, ctor_num_params: u64, ctor_num_fields: u64, ind_sort_level: u64, type_start: u64, type_count: u64) -> u64 {
     if ctor_num_params != ind_num_params { return 1; }
+    // Equality and result shape alone do not establish well-typedness. Infer
+    // parameters, fields and result indices before the inductive-specific checks.
+    if is_err(ensure_sort(env, infer(env, ctor_ty))) > 0 { return 1; }
     let mut cty: u64 = ctor_ty;
     let mut ity: u64 = ind_ty;
     let param_locals: Vec<u64> = Vec::new();
@@ -400,7 +408,11 @@ fn check_constructor(env: Environment, ind_name: u64, ind_ty: u64, ind_num_param
 
         let field_ty: u64 = env.exprs.f2[cty];
 
-        if check_strict_positive(env, field_ty, ind_name) == 0 { return 1; }
+        let mut ti: u64 = 0;
+        while ti < type_count {
+            if check_strict_positive(env, field_ty, env.ind_type_names[type_start + ti]) == 0 { return 1; }
+            ti = ti + 1;
+        }
         if check_field_universe(env, field_ty, ind_sort_level) == 0 { return 1; }
 
         let local_id: u64 = env.next_local_id;
@@ -594,7 +606,7 @@ pub fn check_inductive(env: Environment, di: u64) -> u64 {
                 let c_ty: u64 = env.ind_ctor_tys[cidx];
                 let c_num_params: u64 = env.ind_ctor_num_params[cidx];
                 let c_num_fields: u64 = env.ind_ctor_num_fields[cidx];
-                let r: u64 = check_constructor(env, it_name, it_ty, it_num_params, it_num_indices, it_level_params, c_ty, c_num_params, c_num_fields, ind_sort_level);
+                let r: u64 = check_constructor(env, it_name, it_ty, it_num_params, it_num_indices, it_level_params, c_ty, c_num_params, c_num_fields, ind_sort_level, type_start, type_count);
                 if r > 0 { return 1; }
             }
             ci = ci + 1;
