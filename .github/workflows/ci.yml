@@ -77,6 +77,15 @@ jobs:
         working-directory: kernel
         run: bash scripts/run_tests.sh
 
+      - name: Require external mutual constants to accept (issue 90)
+        working-directory: kernel
+        run: |
+          # The general fixture runner skips declines; this regression must accept.
+          ulimit -v 8388608
+          ulimit -s 65536
+          ./lean_checker tests/good/inductive-mutual-external-constant.ndjson
+          ./lean_checker < tests/good/inductive-mutual-external-constant.ndjson
+
   lint:
     # Advisory for now — surfaces shellcheck findings without blocking. Promote
     # to a required gate once the scripts are clean. shellcheck is preinstalled
