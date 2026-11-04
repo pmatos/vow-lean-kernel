@@ -782,13 +782,9 @@ fn eta_expand_nested_major(env: Environment, rec_idx: u64, ind_name: u64, major:
     }
     if h >= (env.exprs.tags.len() as u64) || env.exprs.tags[h] != 2 { return major; }
     if env.exprs.f1[h] != ind_name || (args.len() as u64) != np { return major; }
-    let mut result: u64 = expr_add_const(env.exprs, env.ind_ctor_names[cs], expr_get_levels(env.exprs, h));
-    let mut pos: u64 = np;
-    while pos > 0 {
-        pos = pos - 1;
-        result = expr_add_app(env.exprs, result, args[pos]);
-    }
-    pos = 0;
+    let ctor: u64 = expr_add_const(env.exprs, env.ind_ctor_names[cs], expr_get_levels(env.exprs, h));
+    let mut result: u64 = rebuild_apps(env, ctor, args);
+    let mut pos: u64 = 0;
     while pos < nf {
         result = expr_add_app(env.exprs, result, expr_add_proj(env.exprs, ind_name, pos, major));
         pos = pos + 1;
@@ -1530,64 +1526,6 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     }
                 }
             }
-                    // Convert stuck rec on single-constructor struct with simple field-selector minor → Proj
-                    // Uses proj_name_canon to match lean4export's naming (e.g., PProd for Prod)
-                    if iota_done == 0 && reduced == 0 {
-                        let rec_nd_p: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
-                        let ind_name_p: u64 = rec_nd_p.parent;
-                        let ind_lk_p: DeclLookup = env_lookup_name(env, ind_name_p);
-                        if ind_lk_p.found > 0 && ind_name_p == major_induct {
-                          if ind_lk_p.kind == 5 {
-                            let p_ind_idx: u64 = ind_lk_p.val;
-                            if env.ind_ctor_count[p_ind_idx] == 1 && structure_eta_nonrecursive(env, p_ind_idx, env.ind_ctor_start[p_ind_idx]) > 0 {
-                              if ni == 0 {
-                                if nmi == 1 {
-                                  let cs_p: u64 = env.ind_ctor_start[p_ind_idx];
-                                  let nf_p: u64 = env.ind_ctor_num_fields[cs_p];
-                                  if nf_p > 0 {
-                                    let minor_rev_p: u64 = num_args - 1 - np - nm;
-                                    // Routed through the whnf_depth-counted wrapper (issue #78):
-                                    // a direct whnf_core call here would recurse without
-                                    // incrementing/checking whnf_depth, an uncounted path to
-                                    // the same native-stack risk the cap exists to bound.
-                                    let minor_w_p: u64 = whnf(env, env.exprs.scratch_args[arg_base + minor_rev_p]);
-                                    let mut body_p: u64 = minor_w_p;
-                                    let mut lc_p: u64 = 0;
-                                    let mut lok_p: u64 = 1;
-                                    while lc_p < nf_p {
-                                        if body_p < (env.exprs.tags.len() as u64) {
-                                            if env.exprs.tags[body_p] == 4 {
-                                                body_p = env.exprs.f3[body_p];
-                                                lc_p = lc_p + 1;
-                                            } else { lok_p = 0; lc_p = nf_p; }
-                                        } else { lok_p = 0; lc_p = nf_p; }
-                                    }
-                                    if lok_p > 0 {
-                                      let body_w_p: u64 = whnf_no_delta(env, body_p);
-                                      if body_w_p < (env.exprs.tags.len() as u64) {
-                                        if env.exprs.tags[body_w_p] == 0 {
-                                          let bv_p: u64 = env.exprs.f1[body_w_p];
-                                          if bv_p < nf_p {
-                                            let fi_p: u64 = nf_p - 1 - bv_p;
-                                            // Use canonical Proj name to match lean4export
-                                            let mut canon_name: u64 = ind_name_p;
-                                            if ind_name_p < (env.proj_name_canon.len() as u64) {
-                                                canon_name = env.proj_name_canon[ind_name_p];
-                                            }
-                                            let proj_p: u64 = expr_add_proj(env.exprs, canon_name, fi_p, major);
-                                            cur = rebuild_apps_skip_range(env, proj_p, env.exprs.scratch_args, arg_base, arg_base + num_args, major_idx + 1);
-                                            reduced = 1;
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                    }
                 }
             }
         } else if ht == 8 {
