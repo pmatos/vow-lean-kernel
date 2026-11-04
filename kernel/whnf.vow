@@ -705,6 +705,93 @@ fn whnf_ctx_cache_store(env: Environment, expr: u64, delta: u64, result: u64) {
     env.whnf_ctx_cache_result[h] = result;
 }
 
+// Lean's recursor_val::get_major_induct reads the major's domain. A nested
+// recursor such as Value.rec_5 need not eliminate its name's parent Value.
+fn recursor_major_induct(env: Environment, rec_idx: u64) -> u64 {
+    let major_pos: u64 = env.rec_num_params[rec_idx] + env.rec_num_motives[rec_idx] + env.rec_num_minors[rec_idx] + env.rec_num_indices[rec_idx];
+    let mut telescope: u64 = env.rec_tys[rec_idx];
+    let mut pos: u64 = 0;
+    while pos < major_pos {
+        if telescope >= (env.exprs.tags.len() as u64) || env.exprs.tags[telescope] != 5 { return 4294967294; }
+        telescope = env.exprs.f3[telescope];
+        pos = pos + 1;
+    }
+    if telescope >= (env.exprs.tags.len() as u64) || env.exprs.tags[telescope] != 5 { return 4294967294; }
+    let mut type_head: u64 = env.exprs.f2[telescope];
+    while type_head < (env.exprs.tags.len() as u64) && env.exprs.tags[type_head] == 3 {
+        type_head = env.exprs.f1[type_head];
+    }
+    if type_head >= (env.exprs.tags.len() as u64) || env.exprs.tags[type_head] != 2 { return 4294967294; }
+    return env.exprs.f1[type_head];
+}
+
+// A recursive single-constructor inductive is not a structure for eta.
+// Check every field against the whole mutual block, not just its own type.
+fn structure_eta_nonrecursive(env: Environment, ind_idx: u64, ctor_idx: u64) -> u64 {
+    let np: u64 = env.ind_ctor_num_params[ctor_idx];
+    let nf: u64 = env.ind_ctor_num_fields[ctor_idx];
+    let mut ty: u64 = env.ind_ctor_tys[ctor_idx];
+    let mut pos: u64 = 0;
+    while pos < np + nf {
+        if ty >= (env.exprs.tags.len() as u64) || env.exprs.tags[ty] != 5 { return 0; }
+        if pos >= np {
+            let mut ti: u64 = env.ind_type_start[ind_idx];
+            let end: u64 = ti + env.ind_type_count[ind_idx];
+            while ti < end {
+                if expr_contains_const(env.exprs, env.exprs.f2[ty], env.ind_type_names[ti]) > 0 { return 0; }
+                ti = ti + 1;
+            }
+        }
+        ty = env.exprs.f3[ty];
+        pos = pos + 1;
+    }
+    return 1;
+}
+
+// Nested structure parameters and universes belong to the actual major type,
+// which may have a different parameter count from the outer recursor.
+fn eta_expand_nested_major(env: Environment, rec_idx: u64, ind_name: u64, major: u64) -> u64 {
+    let rec_name: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
+    if ind_name == rec_name.parent { return major; }
+    let ind: DeclLookup = env_lookup_name(env, ind_name);
+    if ind.found == 0 || ind.kind != 5 { return major; }
+    let ii: u64 = ind.val;
+    // Restrict this additional eta rule to a nonrecursive, single-type
+    // structure without indices. In particular, never eta-expand List/Nat
+    // or turn a genuinely stuck recursive major into a constructor.
+    if env.ind_type_count[ii] != 1 || env.ind_ctor_count[ii] != 1 { return major; }
+    if env.ind_type_num_indices[env.ind_type_start[ii]] != 0 { return major; }
+    let cs: u64 = env.ind_ctor_start[ii];
+    let np: u64 = env.ind_ctor_num_params[cs];
+    let nf: u64 = env.ind_ctor_num_fields[cs];
+    if env.rec_rule_count[rec_idx] != 1 { return major; }
+    if env.rec_rule_ctors[env.rec_rule_start[rec_idx]] != env.ind_ctor_names[cs] { return major; }
+    if env.rec_rule_nfields[env.rec_rule_start[rec_idx]] != nf { return major; }
+    if structure_eta_nonrecursive(env, ii, cs) == 0 { return major; }
+    let major_type: u64 = infer(env, major);
+    if is_err(major_type) > 0 { return major; }
+    let ty: u64 = whnf(env, major_type);
+    let ty_sort: u64 = ensure_sort(env, infer(env, ty));
+    if is_err(ty_sort) > 0 { return major; }
+    if is_level_zero(env, ty_sort) > 0 { return major; }
+    let args: Vec<u64> = Vec::new();
+    let mut h: u64 = ty;
+    while h < (env.exprs.tags.len() as u64) && env.exprs.tags[h] == 3 {
+        args.push(env.exprs.f2[h]);
+        h = env.exprs.f1[h];
+    }
+    if h >= (env.exprs.tags.len() as u64) || env.exprs.tags[h] != 2 { return major; }
+    if env.exprs.f1[h] != ind_name || (args.len() as u64) != np { return major; }
+    let ctor: u64 = expr_add_const(env.exprs, env.ind_ctor_names[cs], expr_get_levels(env.exprs, h));
+    let mut result: u64 = rebuild_apps(env, ctor, args);
+    let mut pos: u64 = 0;
+    while pos < nf {
+        result = expr_add_app(env.exprs, result, expr_add_proj(env.exprs, ind_name, pos, major));
+        pos = pos + 1;
+    }
+    return result;
+}
+
 pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
     if expr >= (env.exprs.tags.len() as u64) {
         return expr;
@@ -1361,18 +1448,32 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                             }
                         }
                     }
-                    // General structure-eta fallback: if the inductive is a single-ctor
-                    // structure (no indices, nf > 0) and the major is not a constructor,
-                    // eta-expand the major to `Ctor params (Proj#0 major) .. (Proj#{nf-1} major)`
-                    // and let iota fire on the next loop iteration.
+                    // Recover the eliminated type before either eta fallback.
+                    let major_induct: u64 = if iota_done == 0 && reduced == 0 { recursor_major_induct(env, rec_idx) } else { 4294967294 };
+                    if iota_done == 0 && reduced == 0 {
+                        let expanded: u64 = eta_expand_nested_major(env, rec_idx, major_induct, major);
+                        if expanded != major {
+                            let mut result: u64 = head;
+                            let mut ai: u64 = num_args;
+                            while ai > 0 {
+                                ai = ai - 1;
+                                let arg: u64 = if ai == major_rev_pos { expanded } else { env.exprs.scratch_args[arg_base + ai] };
+                                result = expr_add_app(env.exprs, result, arg);
+                            }
+                            cur = result;
+                            reduced = 1;
+                        }
+                    }
+                    // Ordinary structure eta: expand to the constructor applied
+                    // to field projections, then let the existing iota rule fire.
                     if iota_done == 0 && reduced == 0 {
                         let rec_nd_e: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
                         let ind_name_e: u64 = rec_nd_e.parent;
                         let ind_lk_e: DeclLookup = env_lookup_name(env, ind_name_e);
-                        if ind_lk_e.found > 0 {
+                        if ind_lk_e.found > 0 && ind_name_e == major_induct {
                           if ind_lk_e.kind == 5 {
                             let e_ind_idx: u64 = ind_lk_e.val;
-                            if env.ind_ctor_count[e_ind_idx] == 1 {
+                            if env.ind_ctor_count[e_ind_idx] == 1 && structure_eta_nonrecursive(env, e_ind_idx, env.ind_ctor_start[e_ind_idx]) > 0 {
                               if ni == 0 {
                                 let cs_e: u64 = env.ind_ctor_start[e_ind_idx];
                                 let nf_e: u64 = env.ind_ctor_num_fields[cs_e];
@@ -1425,64 +1526,6 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                     }
                 }
             }
-                    // Convert stuck rec on single-constructor struct with simple field-selector minor → Proj
-                    // Uses proj_name_canon to match lean4export's naming (e.g., PProd for Prod)
-                    if iota_done == 0 && reduced == 0 {
-                        let rec_nd_p: NameData = name_arena_get(env.names, env.rec_names[rec_idx]);
-                        let ind_name_p: u64 = rec_nd_p.parent;
-                        let ind_lk_p: DeclLookup = env_lookup_name(env, ind_name_p);
-                        if ind_lk_p.found > 0 {
-                          if ind_lk_p.kind == 5 {
-                            let p_ind_idx: u64 = ind_lk_p.val;
-                            if env.ind_ctor_count[p_ind_idx] == 1 {
-                              if ni == 0 {
-                                if nmi == 1 {
-                                  let cs_p: u64 = env.ind_ctor_start[p_ind_idx];
-                                  let nf_p: u64 = env.ind_ctor_num_fields[cs_p];
-                                  if nf_p > 0 {
-                                    let minor_rev_p: u64 = num_args - 1 - np - nm;
-                                    // Routed through the whnf_depth-counted wrapper (issue #78):
-                                    // a direct whnf_core call here would recurse without
-                                    // incrementing/checking whnf_depth, an uncounted path to
-                                    // the same native-stack risk the cap exists to bound.
-                                    let minor_w_p: u64 = whnf(env, env.exprs.scratch_args[arg_base + minor_rev_p]);
-                                    let mut body_p: u64 = minor_w_p;
-                                    let mut lc_p: u64 = 0;
-                                    let mut lok_p: u64 = 1;
-                                    while lc_p < nf_p {
-                                        if body_p < (env.exprs.tags.len() as u64) {
-                                            if env.exprs.tags[body_p] == 4 {
-                                                body_p = env.exprs.f3[body_p];
-                                                lc_p = lc_p + 1;
-                                            } else { lok_p = 0; lc_p = nf_p; }
-                                        } else { lok_p = 0; lc_p = nf_p; }
-                                    }
-                                    if lok_p > 0 {
-                                      let body_w_p: u64 = whnf_no_delta(env, body_p);
-                                      if body_w_p < (env.exprs.tags.len() as u64) {
-                                        if env.exprs.tags[body_w_p] == 0 {
-                                          let bv_p: u64 = env.exprs.f1[body_w_p];
-                                          if bv_p < nf_p {
-                                            let fi_p: u64 = nf_p - 1 - bv_p;
-                                            // Use canonical Proj name to match lean4export
-                                            let mut canon_name: u64 = ind_name_p;
-                                            if ind_name_p < (env.proj_name_canon.len() as u64) {
-                                                canon_name = env.proj_name_canon[ind_name_p];
-                                            }
-                                            let proj_p: u64 = expr_add_proj(env.exprs, canon_name, fi_p, major);
-                                            cur = rebuild_apps_skip_range(env, proj_p, env.exprs.scratch_args, arg_base, arg_base + num_args, major_idx + 1);
-                                            reduced = 1;
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                    }
                 }
             }
         } else if ht == 8 {

@@ -86,6 +86,28 @@ jobs:
           ./lean_checker tests/good/inductive-mutual-external-constant.ndjson
           ./lean_checker < tests/good/inductive-mutual-external-constant.ndjson
 
+      - name: Require nested structure sizeOf regression verdicts (issue 72)
+        working-directory: kernel
+        run: |
+          # The generic fixture runner skips declines; require exact verdicts here.
+          ulimit -v 8388608
+          ulimit -s 65536
+          ./lean_checker tests/good/symbolic-sizeof.ndjson
+          ./lean_checker < tests/good/symbolic-sizeof.ndjson
+          ./lean_checker tests/good/recursive-structure-eta.ndjson
+          ./lean_checker < tests/good/recursive-structure-eta.ndjson
+          for fixture in tests/bad/symbolic-sizeof-wrong.ndjson tests/bad/nested-list-eta.ndjson tests/bad/recursive-structure-eta.ndjson; do
+            for mode in file stdin; do
+              rc=0
+              if [ "$mode" = file ]; then
+                ./lean_checker "$fixture" || rc=$?
+              else
+                ./lean_checker < "$fixture" || rc=$?
+              fi
+              test "$rc" -eq 1
+            done
+          done
+
   lint:
     # Advisory for now — surfaces shellcheck findings without blocking. Promote
     # to a required gate once the scripts are clean. shellcheck is preinstalled
