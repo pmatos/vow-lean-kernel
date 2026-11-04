@@ -29,3 +29,16 @@ and `List.nil`'s rule. The fixed checker must reject, exit 1.
 
 CI checks both file and stdin paths and exact verdicts, because the general
 fixture runner treats declines as skips.
+
+`tests/bad/recursive-structure-eta.ndjson` comes from `Recursive.lean`.
+Export `Recursive -- rootRefl`, then replace the right side of the final
+equality with a fresh `natVal: "0"` node while retaining the reflexivity proof.
+The ordinary recursor eliminates the recursive `Tree` itself. Lean rejects
+that reflexivity proof because reduction must remain stuck on the symbolic
+major. Before the review fix, the ordinary fallback manufactured a constructor
+and incorrectly accepted it. Both ordinary and nested eta now exclude recursive
+constructor fields, including references to other types in a mutual block.
+
+The conclusion `rootTag t = 0` does have a valid proof by eliminating `t`.
+`tests/good/recursive-structure-eta.ndjson` exports `Recursive -- rootByCases`
+and must accept, preserving support for that valid recursive proof.

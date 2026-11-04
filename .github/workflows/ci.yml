@@ -94,7 +94,9 @@ jobs:
           ulimit -s 65536
           ./lean_checker tests/good/symbolic-sizeof.ndjson
           ./lean_checker < tests/good/symbolic-sizeof.ndjson
-          for fixture in tests/bad/symbolic-sizeof-wrong.ndjson tests/bad/nested-list-eta.ndjson; do
+          ./lean_checker tests/good/recursive-structure-eta.ndjson
+          ./lean_checker < tests/good/recursive-structure-eta.ndjson
+          for fixture in tests/bad/symbolic-sizeof-wrong.ndjson tests/bad/nested-list-eta.ndjson tests/bad/recursive-structure-eta.ndjson; do
             for mode in file stdin; do
               rc=0
               if [ "$mode" = file ]; then

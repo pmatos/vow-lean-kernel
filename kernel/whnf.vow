@@ -725,6 +725,29 @@ fn recursor_major_induct(env: Environment, rec_idx: u64) -> u64 {
     return env.exprs.f1[type_head];
 }
 
+// A recursive single-constructor inductive is not a structure for eta.
+// Check every field against the whole mutual block, not just its own type.
+fn structure_eta_nonrecursive(env: Environment, ind_idx: u64, ctor_idx: u64) -> u64 {
+    let np: u64 = env.ind_ctor_num_params[ctor_idx];
+    let nf: u64 = env.ind_ctor_num_fields[ctor_idx];
+    let mut ty: u64 = env.ind_ctor_tys[ctor_idx];
+    let mut pos: u64 = 0;
+    while pos < np + nf {
+        if ty >= (env.exprs.tags.len() as u64) || env.exprs.tags[ty] != 5 { return 0; }
+        if pos >= np {
+            let mut ti: u64 = env.ind_type_start[ind_idx];
+            let end: u64 = ti + env.ind_type_count[ind_idx];
+            while ti < end {
+                if expr_contains_const(env.exprs, env.exprs.f2[ty], env.ind_type_names[ti]) > 0 { return 0; }
+                ti = ti + 1;
+            }
+        }
+        ty = env.exprs.f3[ty];
+        pos = pos + 1;
+    }
+    return 1;
+}
+
 // Nested structure parameters and universes belong to the actual major type,
 // which may have a different parameter count from the outer recursor.
 fn eta_expand_nested_major(env: Environment, rec_idx: u64, ind_name: u64, major: u64) -> u64 {
@@ -744,14 +767,7 @@ fn eta_expand_nested_major(env: Environment, rec_idx: u64, ind_name: u64, major:
     if env.rec_rule_count[rec_idx] != 1 { return major; }
     if env.rec_rule_ctors[env.rec_rule_start[rec_idx]] != env.ind_ctor_names[cs] { return major; }
     if env.rec_rule_nfields[env.rec_rule_start[rec_idx]] != nf { return major; }
-    let mut ctor_type: u64 = env.ind_ctor_tys[cs];
-    let mut pos: u64 = 0;
-    while pos < np + nf {
-        if ctor_type >= (env.exprs.tags.len() as u64) || env.exprs.tags[ctor_type] != 5 { return major; }
-        if pos >= np && expr_contains_const(env.exprs, env.exprs.f2[ctor_type], ind_name) > 0 { return major; }
-        ctor_type = env.exprs.f3[ctor_type];
-        pos = pos + 1;
-    }
+    if structure_eta_nonrecursive(env, ii, cs) == 0 { return major; }
     let major_type: u64 = infer(env, major);
     if is_err(major_type) > 0 { return major; }
     let ty: u64 = whnf(env, major_type);
@@ -767,7 +783,7 @@ fn eta_expand_nested_major(env: Environment, rec_idx: u64, ind_name: u64, major:
     if h >= (env.exprs.tags.len() as u64) || env.exprs.tags[h] != 2 { return major; }
     if env.exprs.f1[h] != ind_name || (args.len() as u64) != np { return major; }
     let mut result: u64 = expr_add_const(env.exprs, env.ind_ctor_names[cs], expr_get_levels(env.exprs, h));
-    pos = np;
+    let mut pos: u64 = np;
     while pos > 0 {
         pos = pos - 1;
         result = expr_add_app(env.exprs, result, args[pos]);
@@ -1461,7 +1477,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         if ind_lk_e.found > 0 && ind_name_e == major_induct {
                           if ind_lk_e.kind == 5 {
                             let e_ind_idx: u64 = ind_lk_e.val;
-                            if env.ind_ctor_count[e_ind_idx] == 1 {
+                            if env.ind_ctor_count[e_ind_idx] == 1 && structure_eta_nonrecursive(env, e_ind_idx, env.ind_ctor_start[e_ind_idx]) > 0 {
                               if ni == 0 {
                                 let cs_e: u64 = env.ind_ctor_start[e_ind_idx];
                                 let nf_e: u64 = env.ind_ctor_num_fields[cs_e];
@@ -1523,7 +1539,7 @@ pub fn whnf_core(env: Environment, expr: u64, do_delta: u64) -> u64 {
                         if ind_lk_p.found > 0 && ind_name_p == major_induct {
                           if ind_lk_p.kind == 5 {
                             let p_ind_idx: u64 = ind_lk_p.val;
-                            if env.ind_ctor_count[p_ind_idx] == 1 {
+                            if env.ind_ctor_count[p_ind_idx] == 1 && structure_eta_nonrecursive(env, p_ind_idx, env.ind_ctor_start[p_ind_idx]) > 0 {
                               if ni == 0 {
                                 if nmi == 1 {
                                   let cs_p: u64 = env.ind_ctor_start[p_ind_idx];
